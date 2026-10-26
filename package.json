@@ -1,0 +1,19 @@
+{
+  "name": "@local/dsh-cursor-provider",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Cursor SDK model provider for DSH; host-owned tools and explicit attribution exception.",
+  "engines": { "node": ">=24.9" },
+  "exports": { "./client": "./src/client.js", ".": "./src/index.js", "./core": "./src/provider.js", "./locale/*.json": "./locale/*.json", "./icon": "./icon.svg" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-plugin-manager", "@deepseek-ai/dsh-client-ui-settings"] } },
+  "dependencies": { "@cursor/sdk": "1.0.40", "ajv": "8.20.0", "zod": "4.6.7" },
+  "peerDependencies": { "@deepseek-ai/dsh-llm": "0.2.1-rc.3", "@deepseek-ai/schemastery": "*" },
+  "files": ["src", "cordis.patch.yml", "locale", "icon.svg", "design", "README.md"],
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "check": "npm test && npm run build",
+    "pack:check": "npm pack --dry-run"
+  }
+}

@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+test('draft credential reaches catalog remote and error display is sanitized', async()=>{
+  let entry, renderer, cursor=0, request, success=false;
+  const values=[];
+  const snapshot={status:'ready',writable:true,value:{},revision:1};
+  const scope={getSnapshot:()=>snapshot,subscribe:()=>()=>{}};
+  const React={createElement:(type,props,...children)=>({type,props:props||{},children}),useSyncExternalStore:(_s,get)=>get(),useRef:()=>({current:null}),useEffect(){},useState(initial){const i=cursor++;if(!(i in values))values[i]=initial;return [values[i],v=>{values[i]=v;}];}};
+  const ctx={locale:{getLocale:()=>({active:'zh'}),register(){},bind:()=>k=>k,subscribe:()=>()=>{},getSnapshot:()=>({})},remote:{llm:{async discoverModels(ns,input){request={ns,input};if(success)return {ok:true,value:[{id:'mock',name:'Mock'}]};return {ok:false,error:{code:'llm/model-discovery-rejected',message:'Cursor authentication or account permission was rejected'}};}}},effect:fn=>fn(),inject:(_deps,fn)=>fn(ctx),configForms:{get:()=>scope,whileServed:(_ns,fn)=>fn()},slots:{inject:(_slot,fn)=>fn(),register:(_opts,fn)=>{renderer=fn;return ()=>{};}}};
+  vm.runInNewContext(readFileSync('src/client.js','utf8'),{window:{__ModuleLoader__:{load:v=>{entry=v;}}}});
+  entry.factory(()=>React).apply(ctx);
+  const render=()=>{cursor=0;const el=renderer({view:'page',useRemoteAccess:()=>true});return el.type(el.props);};
+  const nodes=n=>[n,...(n.children||[]).flat(Infinity).filter(x=>x&&typeof x==='object').flatMap(nodes)];
+  nodes(render()).find(n=>n.props.id==='dcp-key').props.onChange({target:{value:' mock-only '}});
+  await nodes(render()).find(n=>n.type==='button'&&n.props.type==='button').props.onClick();
+  assert.equal(request.ns,'cursor-provider');
+  assert.equal(request.input.apiKey,'mock-only');
+  assert.equal(values[4],'fail [CURSOR_AUTH_FAILED]');
+  nodes(render()).find(n=>n.type==='button'&&n.children.includes('＋ 添加模型')).props.onClick();
+  assert.equal(nodes(render()).find(n=>n.props['aria-label']==='Model ID').props.value,'');
+  assert.equal(nodes(render()).find(n=>n.props.type==='submit').props.disabled,true);
+  nodes(render()).find(n=>n.props['aria-label']==='Model ID').props.onChange({target:{value:'mock'}});
+  assert.equal(nodes(render()).find(n=>n.props.type==='submit').props.disabled,false);
+  success=true;
+  await nodes(render()).find(n=>n.type==='button'&&n.children.includes('load')).props.onClick();
+  assert.ok(nodes(render()).some(n=>n.type==='dialog'));
+  nodes(render()).find(n=>n.type==='button'&&n.children.includes('全选')).props.onClick();
+  nodes(render()).find(n=>n.type==='button'&&n.children.includes('添加所选')).props.onClick();
+  assert.equal(nodes(render()).filter(n=>n.props['aria-label']==='Model ID').length,1);
+  assert.equal(nodes(render()).some(n=>n.type==='dialog'),false);
+});
