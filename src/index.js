@@ -16,6 +16,12 @@ export const Config = z.object({
   })).default({}).volatile(),
 });
 
+export function grokCatalogDiagnostic(models) {
+  const model = models.find(item => item.id === 'grok-4.6');
+  if (!model) return undefined;
+  return { id: model.id, parameters: model.parameters ?? null, variants: model.variants ?? null };
+}
+
 export function apply(ctx, config) {
   const ns = ctx.fiber.entry?.options.id ?? name;
   ctx.inject(['settings'], child => child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)));
@@ -50,6 +56,8 @@ export function apply(ctx, config) {
     if (request.baseURL) throw new ProviderError('UNSUPPORTED_ENDPOINT', 'Cursor uses its official SDK endpoint, not a custom base URL');
     const key = request.apiKey || await credential();
     const models = await transport.catalog(key, signal, { refresh: true });
+    const diagnostic = grokCatalogDiagnostic(models);
+    ctx.logger.info('cursor-provider Grok 4.6 catalog diagnostic: ' + JSON.stringify(diagnostic ?? { found: false }));
     return models.map(m => ({ id: m.id, name: m.displayName }));
   });
 }

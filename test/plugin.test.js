@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Config, apply } from '../src/index.js';
+import { Config, apply, grokCatalogDiagnostic } from '../src/index.js';
 import { LlmAdapter, BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { defineAdapter } from '../src/adapter.js';
+
+test('Grok diagnostic includes only the requested catalog fields', () => {
+  const diagnostic = grokCatalogDiagnostic([
+    { id: 'other', parameters: [{ id: 'ignored' }], variants: [{ displayName: 'ignored' }] },
+    { id: 'grok-4.6', parameters: [{ id: 'reasoning_effort', values: [{ value: 'custom' }] }], variants: [{ displayName: 'Custom', params: [{ id: 'reasoning_effort', value: 'custom' }] }], apiKey: 'must-not-leak' },
+  ]);
+  assert.deepEqual(diagnostic, {
+    id: 'grok-4.6',
+    parameters: [{ id: 'reasoning_effort', values: [{ value: 'custom' }] }],
+    variants: [{ displayName: 'Custom', params: [{ id: 'reasoning_effort', value: 'custom' }] }],
+  });
+  assert.equal(grokCatalogDiagnostic([{ id: 'other' }]), undefined);
+});
 
 test('model display names save alongside legacy rows without input declarations', () => {
   const config=Config({providers:{cursor:{models:[{id:'grok-4.7',name:'My Grok'},{id:'grok-4.6'}]}}});

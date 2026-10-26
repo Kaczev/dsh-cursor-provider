@@ -4,11 +4,11 @@ import Ajv from 'ajv';
 import { defineAdapter, modelSelection } from '../src/adapter.js';
 const catalog = [{ id: 'mock', displayName: 'Mock', parameters: [{ id: 'reasoning_effort', values: [{ value: 'high' }] }], variants: [{ displayName: 'High', params: [{ id: 'reasoning_effort', value: 'high' }] }] }];
 const collect = async src => { const out = []; for await (const e of src) out.push(e); return out; };
-function fixture(events = [{ type: 'text', text: 'ok' }]) {
+function fixture(events = [{ type: 'text', text: 'ok' }], modelCatalog = catalog) {
   const calls = [];
   const ajv = new Ajv();
   const Adapter = defineAdapter({ LlmAdapter: class {}, profile: () => ({}), credential: async () => 'mock-only', validate: (schema, args) => ajv.validate(schema, args),
-    transport: { catalog: async () => catalog, async *stream(options) { calls.push(options); yield* events; } } });
+    transport: { catalog: async () => modelCatalog, async *stream(options) { calls.push(options); yield* events; } } });
   return { adapter: new Adapter(), calls };
 }
 test('text deltas share one block and preserve actual newlines', async () => {
@@ -47,8 +47,27 @@ test('SDK object-valued parameter definitions and variants map without invented 
   assert.equal((await adapter.listModels()).length, 2);
   const info = await adapter.resolveModel('cursor', 'mock');
   assert.equal(info.context, undefined);
-  assert.deepEqual(info.reasoning.efforts, [{ id: 'high', name: 'high' }]);
+  assert.deepEqual(info.reasoning.efforts, [{ id: 'high', name: 'High' }]);
 });
+test('reasoning levels are derived from variants when SDK omits parameter definitions', async () => {
+  const modelCatalog = [{ id: 'catalog-model', displayName: 'Catalog model', variants: [
+    { displayName: 'Default', isDefault: true, params: [] },
+    { displayName: 'Option One', params: [{ id: 'reasoning_effort', value: 'option_one' }] },
+    { displayName: 'Option Two', params: [{ id: 'reasoning_effort', value: 'option_two' }] },
+  ] }];
+  const { adapter } = fixture([{ type: 'text', text: 'ok' }], modelCatalog);
+  assert.deepEqual((await adapter.listModels()).map(model => model.id), [
+    'catalog-model', 'catalog-model@reasoning_effort=option_one', 'catalog-model@reasoning_effort=option_two',
+  ]);
+  const info = await adapter.resolveModel('cursor', 'catalog-model');
+  assert.deepEqual(info.reasoning.efforts, [
+    { id: 'option_one', name: 'Option One' }, { id: 'option_two', name: 'Option Two' },
+  ]);
+  assert.deepEqual(modelSelection('catalog-model@reasoning_effort=option_two', modelCatalog), {
+    id: 'catalog-model', params: [{ id: 'reasoning_effort', value: 'option_two' }],
+  });
+});
+
 test('DSH text and tool blocks finish exactly once, raw JSON preserved', async () => {
   const { adapter, calls } = fixture([{ type: 'text', text: '<tool_' }, { type: 'text', text: 'call>{"name":"safe","arguments":{"n":1}}</tool_call>' }, { type: 'usage', billing: { inputTokens: 10, outputTokens: 2 } }]);
   const tools = [{ name: 'safe', description: 'safe mock', parameters: { type: 'object', properties: { n: { type: 'integer' } }, required: ['n'], additionalProperties: false } }];

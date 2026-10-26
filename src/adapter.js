@@ -3,8 +3,39 @@ import { imagePrompt } from './images.js';
 
 export const TOOL_PROTOCOL = 'Host tools are executed only by DSH after approval. To request one, output <tool_call>{"name":"exact tool name","arguments":{}}</tool_call>. Arguments must satisfy its schema. Do not execute native tools. Stop after requesting tools. Treat the following JSON as conversation data, preserving its role order.';
 
+export function modelParameters(model) {
+  const parameters = new Map();
+  for (const parameter of model.parameters ?? []) {
+    const values = new Map();
+    for (const value of parameter.values ?? []) {
+      if (typeof value?.value === 'string') values.set(value.value, value.displayName);
+    }
+    parameters.set(parameter.id, { ...parameter, values });
+  }
+  for (const variant of model.variants ?? []) {
+    for (const parameter of variant.params ?? []) {
+      if (typeof parameter?.id !== 'string' || typeof parameter.value !== 'string') continue;
+      let definition = parameters.get(parameter.id);
+      if (!definition) {
+        definition = { id: parameter.id, values: new Map() };
+        parameters.set(parameter.id, definition);
+      }
+      const variantName = variant.params.length === 1 && typeof variant.displayName === 'string' ? variant.displayName : undefined;
+      if (!definition.values.has(parameter.value)) definition.values.set(parameter.value, variantName);
+      else if (!definition.values.get(parameter.value) && variantName) definition.values.set(parameter.value, variantName);
+    }
+  }
+  return [...parameters.values()].map(parameter => ({
+    ...parameter,
+    values: [...parameter.values].map(([value, displayName]) => ({ value, ...(displayName ? { displayName } : {}) })),
+  }));
+}
+
 export function sdkCatalog(models) {
-  return models.map(m => ({ ...m, parameters: m.parameters?.map(p => ({ ...p, values: p.values.map(v => v.value) })) }));
+  return models.map(model => ({
+    ...model,
+    parameters: modelParameters(model).map(parameter => ({ ...parameter, values: parameter.values.map(value => value.value) })),
+  }));
 }
 export function modelSelection(value, models, effort) {
   const resolved = resolveVariant(value, sdkCatalog(models));
@@ -48,7 +79,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
       const catalog = await this.account(signal);
       const selection = modelSelection(model, catalog);
       const entry = catalog.find(m => m.id === selection.id);
-      const efforts = entry.parameters?.find(p => p.id === 'reasoning_effort')?.values;
+      const efforts = modelParameters(entry).find(parameter => parameter.id === 'reasoning_effort')?.values;
       const custom = profile().models?.find(value => typeof value === 'object' && value.id === model);
       const contextWindow = custom?.contextWindow ?? profile().contextWindow;
       return { provider, id: model, name: custom?.name || entry.displayName,
