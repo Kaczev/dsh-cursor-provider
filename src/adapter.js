@@ -3,15 +3,37 @@ import { imagePrompt } from './images.js';
 
 export const TOOL_PROTOCOL = 'Host tools are executed only by DSH after approval. To request one, output <tool_call>{"name":"exact tool name","arguments":{}}</tool_call>. Arguments must satisfy its schema. Do not execute native tools. Stop after requesting tools. Treat the following JSON as conversation data, preserving its role order.';
 
+// Some SDK catalogs describe selectable values only through variants.
+// Normalize once so metadata and request validation agree on those values.
+function parameterDefinitions(model) {
+  const parameters = new Map((model.parameters ?? []).map(p => [p.id, { ...p, values: p.values.map(v => ({ ...v })) }]));
+  for (const variant of model.variants ?? []) for (const param of variant.params) {
+    let definition = parameters.get(param.id);
+    if (!definition) {
+      definition = { id: param.id, values: [] };
+      parameters.set(param.id, definition);
+    }
+    if (!definition.values.some(v => v.value === param.value)) {
+      definition.values.push({ value: param.value });
+    }
+  }
+  return [...parameters.values()];
+}
+function reasoningParameter(model) {
+  const parameters = parameterDefinitions(model);
+  return ['reasoning_effort', 'effort', 'reasoning'].map(id => parameters.find(p => p.id === id)).find(Boolean);
+}
 export function sdkCatalog(models) {
-  return models.map(m => ({ ...m, parameters: m.parameters?.map(p => ({ ...p, values: p.values.map(v => v.value) })) }));
+  return models.map(m => ({ ...m, parameters: parameterDefinitions(m).map(p => ({ ...p, values: p.values.map(v => v.value) })) }));
 }
 export function modelSelection(value, models, effort) {
   const resolved = resolveVariant(value, sdkCatalog(models));
   const params = { ...resolved.parameters };
   if (effort !== undefined) {
-    if (params.reasoning_effort !== undefined && params.reasoning_effort !== effort) throw new ProviderError('INVALID_PARAMETER', 'Reasoning effort conflicts with model variant');
-    params.reasoning_effort = effort;
+    const parameter = reasoningParameter(models.find(m => m.id === resolved.id));
+    if (!parameter) throw new ProviderError('INVALID_PARAMETER', 'Model declares no reasoning effort parameter');
+    if (params[parameter.id] !== undefined && params[parameter.id] !== effort) throw new ProviderError('INVALID_PARAMETER', 'Reasoning effort conflicts with model variant');
+    params[parameter.id] = effort;
     resolveVariant(resolved.id + '@' + Object.entries(params).map(([k,v]) => `${k}=${v}`).join(','), sdkCatalog(models));
   }
   const variants = models.find(m => m.id === resolved.id)?.variants ?? [];
@@ -48,7 +70,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
       const catalog = await this.account(signal);
       const selection = modelSelection(model, catalog);
       const entry = catalog.find(m => m.id === selection.id);
-      const efforts = entry.parameters?.find(p => p.id === 'reasoning_effort')?.values;
+      const efforts = reasoningParameter(entry)?.values;
       const custom = profile().models?.find(value => typeof value === 'object' && value.id === model);
       const contextWindow = custom?.contextWindow ?? profile().contextWindow;
       return { provider, id: model, name: custom?.name || entry.displayName,

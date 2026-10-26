@@ -11,6 +11,22 @@ function fixture(events = [{ type: 'text', text: 'ok' }]) {
     transport: { catalog: async () => catalog, async *stream(options) { calls.push(options); yield* events; } } });
   return { adapter: new Adapter(), calls };
 }
+test('catalog reasoning aliases retain upstream IDs in metadata and stream requests', async () => {
+  for (const id of ['reasoning_effort', 'effort', 'reasoning']) {
+    const models = [{id:'alias',displayName:'Alias',parameters:[{id,values:[{value:'high',displayName:'High'},{value:'max',displayName:'Max'}]}],
+      variants:[{displayName:'High',params:[{id,value:'high'}]},{displayName:'Max',params:[{id,value:'max'}],isMaxMode:true}]}];
+    const calls=[];
+    const Adapter=defineAdapter({LlmAdapter:class{},profile:()=>({}),credential:async()=> 'mock',
+      transport:{catalog:async()=>models,async *stream(request){calls.push(request);yield {type:'text',text:'ok'};}}});
+    const adapter=new Adapter();
+    assert.deepEqual((await adapter.resolveModel('cursor','alias')).reasoning.efforts,[{id:'high',name:'High'},{id:'max',name:'Max'}]);
+    const out=await collect(adapter.stream({...options,model:'alias',reasoningEffort:'max'}));
+    assert.equal(out.at(-1).reason.kind,'stop');
+    assert.deepEqual(calls[0].model,{id:'alias',params:[{id,value:'max'}],maxMode:true});
+    assert.throws(()=>modelSelection(`alias@${id}=high`,models,'max'),{code:'INVALID_PARAMETER'});
+    assert.throws(()=>modelSelection('alias',models,'invalid'),{code:'INVALID_PARAMETER'});
+  }
+});
 test('text deltas share one block and preserve actual newlines', async () => {
   const {adapter}=fixture([{type:'text',text:'hello '},{type:'text',text:'world\n'},{type:'text',text:'again'}]);
   const out=await collect(adapter.stream(options));
@@ -48,6 +64,39 @@ test('SDK object-valued parameter definitions and variants map without invented 
   const info = await adapter.resolveModel('cursor', 'mock');
   assert.equal(info.context, undefined);
   assert.deepEqual(info.reasoning.efforts, [{ id: 'high', name: 'high' }]);
+});
+test('variant-only efforts are exposed and accepted by the request path without mutating catalog', async () => {
+  const models = [{ id: 'variant-only', displayName: 'Variant only', variants: [
+    { displayName: 'Low', params: [{ id: 'reasoning_effort', value: 'low' }] },
+    { displayName: 'High', params: [{ id: 'reasoning_effort', value: 'high' }], isMaxMode: true },
+  ] }];
+  const original = JSON.stringify(models);
+  const calls = [];
+  const Adapter = defineAdapter({ LlmAdapter: class {}, profile: () => ({}), credential: async () => 'mock',
+    transport: { catalog: async () => models, async *stream(request) { calls.push(request); yield {type:'text',text:'ok'}; } } });
+  const adapter = new Adapter();
+  assert.deepEqual((await adapter.resolveModel('cursor','variant-only')).reasoning.efforts,
+    [{id:'low',name:'low'},{id:'high',name:'high'}]);
+  assert.deepEqual(modelSelection('variant-only',models,'high'),
+    {id:'variant-only',params:[{id:'reasoning_effort',value:'high'}],maxMode:true});
+  const out = await collect(adapter.stream({...options,model:'variant-only',reasoningEffort:'high'}));
+  assert.equal(out.at(-1).reason.kind,'stop');
+  assert.equal(calls[0].model.params[0].value,'high');
+  assert.throws(()=>modelSelection('variant-only',models,'invented'),{code:'INVALID_PARAMETER'});
+  assert.throws(()=>modelSelection('variant-only@reasoning_effort=low',models,'high'),{code:'INVALID_PARAMETER'});
+  assert.equal(JSON.stringify(models),original);
+});
+test('merge variant values while preserving explicit labels and never invent efforts', async () => {
+  const models = [
+    {id:'mixed',displayName:'Mixed',parameters:[{id:'reasoning_effort',values:[{value:'high',displayName:'High effort'}]}],
+      variants:[{displayName:'Duplicate',params:[{id:'reasoning_effort',value:'high'}]},{displayName:'Low',params:[{id:'reasoning_effort',value:'low'}]}]},
+    {id:'plain',displayName:'Plain',variants:[{displayName:'Default',params:[]}]},
+  ];
+  const Adapter=defineAdapter({LlmAdapter:class{},profile:()=>({}),credential:async()=> 'mock',transport:{catalog:async()=>models}});
+  const adapter=new Adapter();
+  assert.deepEqual((await adapter.resolveModel('cursor','mixed')).reasoning.efforts,
+    [{id:'high',name:'High effort'},{id:'low',name:'low'}]);
+  assert.equal((await adapter.resolveModel('cursor','plain')).reasoning,undefined);
 });
 test('DSH text and tool blocks finish exactly once, raw JSON preserved', async () => {
   const { adapter, calls } = fixture([{ type: 'text', text: '<tool_' }, { type: 'text', text: 'call>{"name":"safe","arguments":{"n":1}}</tool_call>' }, { type: 'usage', billing: { inputTokens: 10, outputTokens: 2 } }]);
