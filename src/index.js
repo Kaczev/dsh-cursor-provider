@@ -11,7 +11,7 @@ export const Config = z.object({
   providers: z.dict(z.object({
     apiKeyEnv: z.string().role('credential-ref'),
     displayName: z.string(),
-    models: z.array(z.union([z.string(), z.object({ id: z.string().required(), name: z.string(), inputModalities: z.array(z.union([z.const('text'), z.const('image')])).min(1), contextWindow: z.number().step(1).min(1) })])),
+    models: z.array(z.union([z.string(), z.object({ id: z.string().required(), name: z.string(), inputModalities: z.array(z.union([z.const('text'), z.const('image')])).min(1).default(undefined), contextWindow: z.number().step(1).min(1) })])),
     contextWindow: z.number().step(1).min(1),
   })).default({}).volatile(),
 });

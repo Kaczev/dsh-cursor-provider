@@ -4,6 +4,18 @@ import { Config, apply } from '../src/index.js';
 import { LlmAdapter, BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { defineAdapter } from '../src/adapter.js';
 
+test('model display names save alongside legacy rows without input declarations', () => {
+  const config=Config({providers:{cursor:{models:[{id:'grok-4.7',name:'My Grok'},{id:'grok-4.6'}]}}});
+  const models=config.providers.get().cursor.models;
+  assert.equal(models[0].name,'My Grok');
+  assert.equal(models[1].inputModalities,undefined);
+  for (const inputModalities of [['text'],['image'],['text','image']]) {
+    const value=Config({providers:{cursor:{models:[{id:'mock',name:'Named',inputModalities}]}}});
+    assert.deepEqual(value.providers.get().cursor.models[0].inputModalities,inputModalities);
+  }
+  assert.throws(()=>Config({providers:{cursor:{models:[{id:'mock',inputModalities:[]}]}}}));
+});
+
 test('real Schemastery configuration and native provider registrations', async () => {
   const config = Config({ providers: { cursor: { apiKeyEnv: 'CURSOR_TEST_ONLY' } } });
   assert.equal(config.providers.get().cursor.apiKeyEnv, 'CURSOR_TEST_ONLY');

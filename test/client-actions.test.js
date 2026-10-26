@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import { Config } from '../src/index.js';
 
 test('draft credential reaches catalog remote and error display is sanitized', async()=>{
   let entry, renderer, cursor=0, request, success=false;
@@ -32,4 +33,20 @@ test('draft credential reaches catalog remote and error display is sanitized', a
   button('fetchAdopt').props.onClick();
   assert.equal(nodes(render()).filter(n=>String(n.props['aria-label']).startsWith('modelId ')).length,1);
   assert.equal(nodes(render()).some(n=>n.props.role==='dialog'),false);
+  let saved;
+  scope.mutate=async(ops,revision)=>{
+    assert.equal(revision,1);
+    const models=ops.find(op=>op.path.at(-1)==='models').value;
+    const config=Config({providers:{cursor:{models:JSON.parse(JSON.stringify(models))}}});
+    saved=config.providers.get().cursor.models;
+    return true;
+  };
+  nodes(render()).find(n=>n.props.id==='dcp-key').props.onChange({target:{value:''}});
+  field('modelName 1').props.onChange({target:{value:'My Grok'}});
+  button('addModel').props.onClick();
+  field('modelId 2').props.onChange({target:{value:'legacy-model'}});
+  await nodes(render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+  assert.equal(saved[0].name,'My Grok');
+  assert.equal(saved[1].id,'legacy-model');
+  assert.equal(saved[1].inputModalities,undefined);
 });
