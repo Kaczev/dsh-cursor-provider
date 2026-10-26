@@ -1,7 +1,10 @@
 {
-  "name": "@local/dsh-cursor-provider",
+  "name": "dsh-cursor-provider",
   "version": "0.0.1",
-  "private": true,
+  "repository": { "type": "git", "url": "git+https://github.com/Kaczev/dsh-cursor-provider.git" },
+  "homepage": "https://github.com/Kaczev/dsh-cursor-provider#readme",
+  "bugs": { "url": "https://github.com/Kaczev/dsh-cursor-provider/issues" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
   "type": "module",
   "description": "Cursor SDK model provider for DSH; host-owned tools and explicit attribution exception.",
   "engines": { "node": ">=24.9" },

@@ -1,4 +1,4 @@
-window.__ModuleLoader__.load({ id: '@local/dsh-cursor-provider', factory(require) {
+window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
   const React = require('react'), h = React.createElement;
   return { inject: ['slots', 'locale', 'remote', 'remote.credentials', 'remote.llm'], apply(ctx) {
     const ns = 'cursor-provider';
@@ -638,7 +638,7 @@ window.__ModuleLoader__.load({ id: '@local/dsh-cursor-provider', factory(require
 
     ctx.inject(['configForms'], c => {
       const forms = c.configForms;
-      c.effect(() => forms.whileServed([ns], () => c.slots.inject('plugins.bundle.config', () => c.slots.register({ name: 'plugins.bundle.config', key: '@local/dsh-cursor-provider' }, props => h(Panel, { ...props, scope: forms.get(ns) })))), 'cursor configuration panel');
+      c.effect(() => forms.whileServed([ns], () => c.slots.inject('plugins.bundle.config', () => c.slots.register({ name: 'plugins.bundle.config', key: 'dsh-cursor-provider' }, props => h(Panel, { ...props, scope: forms.get(ns) })))), 'cursor configuration panel');
     });
   }};
 }});

@@ -1,6 +1,8 @@
 # Cursor SDK 供应商
 
-这个独立 Cordis bundle 注册 `cursor` 模型供应商，使用官方 `@cursor/sdk` 1.0.40。DSH 接收工具调用并负责执行和审批；插件不会在 SDK callback 中运行宿主工具。任务入口与最初调查见 [HANDOFF.md](HANDOFF.md)。
+这个独立 Cordis bundle 注册 `cursor` 模型供应商，使用官方 `@cursor/sdk` 1.0.40。DSH 接收工具调用并负责执行和审批；插件不会在 SDK callback 中运行宿主工具。
+
+在 DSH 插件管理器中安装 npm 包 `dsh-cursor-provider`，然后打开「插件 → Cursor → 详情」填写 Cursor API 密钥。需要 Node.js 24.9 或更新版本，以及兼容 `@deepseek-ai/dsh-llm` 0.2.1-rc.3 的 DSH 环境。
 
 用户已确认图片发送成功。模型行的文字、图片输入类型均可手动勾选，至少保留一种；不勾图片时由 DSH 投影为文字占位。新增模型默认文字，旧模型未声明输入类型时保留原有图片传递行为，首次修改勾选后保存显式声明。
 
@@ -24,25 +26,25 @@ Cursor SDK 1.0.40 没有已确认的公开上游标头注入入口。本插件�
 
 ## 本机检查
 
-环境为 Node 24.19.0、npm 11.17.0。2026-10-26 实际执行：
+环境为 Node 24.19.0、npm 11.17.0。2026-10-27 实际执行：
 
 ```sh
 npm test
 npm run build
 ```
 
-最新检查为 48 项测试通过，并校验复制 6 个 JavaScript 模块。新增断言覆盖目录缓存、过期、显式刷新、凭据隔离，以及文字、图片和双输入类型元数据。图片测试覆盖用户与工具消息、重复图片、多轮位置编号、offload、读取失败、取消及 transport 透传；全部使用 mock，不读取既有密钥，也未发起真实图片推理。
+最新检查为 52 项测试通过，并校验复制 6 个 JavaScript 模块。断言覆盖目录缓存、过期、显式刷新、凭据隔离、文字与图片元数据、旧模型配置保存，以及推理参数别名。插件归并 `parameters` 与 `variants[].params`，识别 `reasoning_effort`、`effort`、`reasoning`，发送时保留上游参数名；已用真实账号目录离线回放五个模型。图片测试覆盖用户与工具消息、重复图片、多轮位置编号、offload、读取失败、取消及 transport 透传；自动测试使用 mock，不读取既有密钥。
 
 ```sh
 npm run pack:check
 ```
 
-本轮打包检查通过：13 个文件，约 18.6 kB；包含 Client 和图片模块入口。研究目录、测试和密钥未列入发布内容。参考 Hermes 仓库的 `pytest -q` 不是本插件测试命令，本轮未运行。
+打包内容包含 Host、Client、图片模块、locale、图标、bundle patch 和视觉参考；不包含研究目录、测试或密钥。参考 Hermes 仓库的 `pytest -q` 不是本插件测试命令。
 
 `npm audit --omit=dev` 报告宿主 peer `@deepseek-ai/dsh-llm` 依赖的 zod 存在高危公告 GHSA-mrhx-c7xc-m3w5。本仓库没有强制覆盖宿主依赖，也没有运行 `audit fix --force`。这项依赖风险仍需宿主版本解决。
 
 ## 尚需验收
 
-用户已确认真实图片发送成功；本轮缓存与输入类型修改仍需重启 DSH 后验收实际切换速度、勾选保存与图片占位。多图、工具返回图片及模型不支持视觉时的上游行为仍需验收。本轮未重新安装或修改既有配置；未推送、打 tag、创建 Release 或发布 npm。
+用户已确认真实图片发送和推理等级修复生效。多图、工具返回图片及模型不支持视觉时的上游行为仍需验收。发布包改用公开包名 `dsh-cursor-provider`；原先通过 `@local/dsh-cursor-provider` 链接安装的用户需通过插件管理器迁移，发布操作不会自动改写本地 profile。
 
 HTML 参考保存在 [design/cursor-provider.html](design/cursor-provider.html)，不连接后端，也不接收密钥。本轮已在浏览器以 1200×772 视口渲染空目录状态。生产界面使用官方插件配置插槽，不用 HTML 替换 DSH 页面。

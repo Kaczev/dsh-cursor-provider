@@ -1,4 +1,4 @@
 - insert:
     - id: cursor-provider
-      name: '@local/dsh-cursor-provider'
+      name: 'dsh-cursor-provider'
       config: {}
