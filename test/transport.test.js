@@ -75,8 +75,11 @@ test('isolated text-only SDK options, terminal wait, usage and disposal', async 
   assert.deepEqual(calls.options.local.settingSources, []);
   assert.deepEqual(calls.options.local.customTools, {});
   assert.equal(calls.disposed, 1); assert.equal(calls.waited, true);
-  assert.equal(out[1].billing.inputTokens, 22);
-  assert.equal(out[1].contextInputTokens, 12);
+  assert.equal(calls.options.local.enableAgentRetries, false);
+  const usage = out.find(e => e.type === 'usage');
+  assert.equal(usage.billing.inputTokens, 22);
+  assert.equal(usage.contextInputTokens, 12);
+  assert.deepEqual(out.find(e => e.type === 'diagnostic').summary, { status: 'finished', eventCounts: { assistant: 1, usage: 2 } });
 });
 
 test('SDK image payload reaches send unchanged with native tools disabled', async () => {
@@ -91,6 +94,23 @@ test('native tool channel fails closed without executing it', async () => {
   const { transport, calls } = fixture([{ type: 'tool_call', name: 'shell' }]);
   await assert.rejects(collect(transport.stream({ apiKey: 'mock-only', model: { id: 'mock' }, prompt: '' })), { code: 'NATIVE_TOOL_BLOCKED' });
   assert.equal(calls.disposed, 1);
+});
+
+test('blocked native events retain only sanitized counts and received billing', async () => {
+  const { transport } = fixture([{ type: 'usage', usage: { inputTokens: 4 } }, { type: 'tool_call', name: 'secret-tool', arguments: { token: 'secret-value' } }]);
+  const out = [];
+  await assert.rejects(async () => { for await (const event of transport.stream({ apiKey: 'mock-only', model: { id: 'mock' }, prompt: '' })) out.push(event); }, { code: 'NATIVE_TOOL_BLOCKED' });
+  assert.deepEqual(out.find(e => e.type === 'diagnostic').summary, { status: 'error', eventCounts: { usage: 1, tool_call: 1 } });
+  assert.equal(out.find(e => e.type === 'usage').billing.inputTokens, 4);
+  assert.equal(JSON.stringify(out).includes('secret'), false);
+});
+test('failed run reports usage and terminal metadata exactly once', async () => {
+  const { transport } = fixture([{ type: 'usage', usage: { inputTokens: 5 } }], 'error');
+  const out = [];
+  await assert.rejects(async () => { for await (const event of transport.stream({ apiKey: 'mock-only', model: { id: 'mock' }, prompt: '' })) out.push(event); }, { code: 'SDK_RUN_FAILED' });
+  assert.equal(out.filter(e => e.type === 'usage').length, 1);
+  assert.equal(out.filter(e => e.type === 'diagnostic').length, 1);
+  assert.equal(out.find(e => e.type === 'diagnostic').summary.status, 'error');
 });
 
 test('run failure is not presented as success; closed transport rejects calls', async () => {

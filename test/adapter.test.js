@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Ajv from 'ajv';
-import { defineAdapter, modelSelection } from '../src/adapter.js';
+import { defineAdapter, modelSelection, announcesAction } from '../src/adapter.js';
 const catalog = [{ id: 'mock', displayName: 'Mock', parameters: [{ id: 'reasoning_effort', values: [{ value: 'high' }] }], variants: [{ displayName: 'High', params: [{ id: 'reasoning_effort', value: 'high' }] }] }];
 const collect = async src => { const out = []; for await (const e of src) out.push(e); return out; };
 function fixture(events = [{ type: 'text', text: 'ok' }]) {
   const calls = [];
   const ajv = new Ajv();
   const Adapter = defineAdapter({ LlmAdapter: class {}, profile: () => ({}), credential: async () => 'mock-only', validate: (schema, args) => ajv.validate(schema, args),
-    transport: { catalog: async () => catalog, async *stream(options) { calls.push(options); yield* events; } } });
+    transport: { catalog: async () => catalog, async *stream(options) { calls.push(options); yield* (typeof events === 'function' ? events(calls.length) : events); } } });
   return { adapter: new Adapter(), calls };
 }
 test('catalog reasoning aliases retain upstream IDs in metadata and stream requests', async () => {
@@ -119,6 +119,72 @@ test('unsupported controls and attachments reject before inference', async () =>
     const out = await collect(adapter.stream({ ...options, ...change }));
     assert.equal(out.at(-1).reason.kind, 'error'); assert.equal(calls.length, 0);
   }
+});
+test('one visible protocol correction recovers a promise and sums billing', async () => {
+  const tools = [{ name: 'safe', parameters: { type: 'object' } }];
+  const { adapter, calls } = fixture(n => [
+    { type: 'text', text: n === 1 ? '我先检查目录，再写文件。' : '<tool_call>{"name":"safe","arguments":{}}</tool_call>' },
+    { type: 'usage', billing: { inputTokens: 10, outputTokens: 2 } },
+    { type: 'diagnostic', summary: { status: 'finished', eventCounts: { assistant: 1 } } },
+  ]);
+  const out = await collect(adapter.stream({ ...options, tools }));
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].prompt, /protocolRecovery/);
+  assert.equal(out.at(-1).reason.kind, 'tool-calls');
+  assert.equal(out.filter(e => e.type === 'finish').length, 1);
+  assert.equal(out.find(e => e.type === 'usage').usage.inputTokens, 20);
+  assert.equal(out.at(-1).replayState.response.attempts.length, 2);
+  assert.match(out.at(-1).replayState.response.attempts[0].response, /检查目录/);
+});
+test('repeated promise fails explicitly after one correction and keeps billing', async () => {
+  const { adapter, calls } = fixture([{ type: 'text', text: '先看目录。' }, { type: 'usage', billing: { inputTokens: 3 } }]);
+  const out = await collect(adapter.stream({ ...options, tools: [{ name: 'safe', parameters: {} }] }));
+  assert.equal(calls.length, 2);
+  assert.equal(out.at(-1).reason.failure.code, 'MISSING_TOOL_CALL');
+  assert.equal(out.find(e => e.type === 'usage').usage.inputTokens, 6);
+  assert.equal(out.at(-1).replayState.response.attempts.length, 2);
+});
+test('answers, clarification, completed work and tool-free requests do not retry', async () => {
+  for (const text of ['答案是 42。', '我先检查哪个目录？', '已完成目录检查。', 'Here is an example: I will read a file.']) {
+    const { adapter, calls } = fixture([{ type: 'text', text }]);
+    const out = await collect(adapter.stream({ ...options, tools: [{ name: 'safe', parameters: {} }] }));
+    assert.equal(calls.length, 1); assert.equal(out.at(-1).reason.kind, 'stop');
+  }
+  const { adapter, calls } = fixture([{ type: 'text', text: '我先检查目录。' }]);
+  await collect(adapter.stream(options)); assert.equal(calls.length, 1);
+});
+
+test('immediate-action detection excludes past narrative and quoted examples', () => {
+  for (const text of ['I will check the directory.', 'I’ll read the file.', '（点头） 我先检查目录。', '先看测试设计目录和现有基线，再写一份框架。']) assert.equal(announcesAction(text), true, text);
+  for (const text of ['我先前检查过目录。', '我现在知道怎么写了。', '"I will read the file."', '我先检查哪个目录？', '```I will read```']) assert.equal(announcesAction(text), false, text);
+});
+test('cancellation after first promise keeps usage and prevents correction request', async () => {
+  const controller = new AbortController();
+  const { adapter, calls } = fixture(() => {
+    controller.abort();
+    return [{ type: 'text', text: '我先检查目录。' }, { type: 'usage', billing: { inputTokens: 7 } }];
+  });
+  const out = await collect(adapter.stream({ ...options, signal: controller.signal, tools: [{ name: 'safe', parameters: {} }] }));
+  assert.equal(calls.length, 1);
+  assert.equal(out.at(-1).reason.kind, 'aborted');
+  assert.equal(out.find(e => e.type === 'usage').usage.inputTokens, 7);
+});
+test('malformed and truncated envelopes fail closed without correction', async () => {
+  for (const text of ['<tool_call>{bad}</tool_call>', '<tool_call>{"name":"safe"']) {
+    const { adapter, calls } = fixture([{ type: 'text', text }]);
+    const out = await collect(adapter.stream({ ...options, tools: [{ name: 'safe', parameters: {} }] }));
+    assert.equal(calls.length, 1);
+    assert.equal(out.at(-1).reason.kind, 'error');
+    assert.equal(out.some(e => e.type === 'tool-call-delta'), false);
+  }
+});
+
+test('empty correction response cannot turn the first promise into success', async () => {
+  const { adapter, calls } = fixture(n => [{ type: 'usage', billing: { inputTokens: 2 } }, ...(n === 1 ? [{ type: 'text', text: '我先检查目录。' }] : [])]);
+  const out = await collect(adapter.stream({ ...options, tools: [{ name: 'safe', parameters: {} }] }));
+  assert.equal(calls.length, 2);
+  assert.equal(out.at(-1).reason.failure.code, 'EMPTY_RESPONSE');
+  assert.equal(out.find(e => e.type === 'usage').usage.inputTokens, 4);
 });
 test('SDK failures redact upstream error details', async () => {
   const { adapter } = fixture();

@@ -1,7 +1,14 @@
-import { ToolParser, ProviderError, resolveVariant } from './provider.js';
+import { ToolParser, ProviderError, resolveVariant, summarizeUsage } from './provider.js';
 import { imagePrompt } from './images.js';
 
-export const TOOL_PROTOCOL = 'Host tools are executed only by DSH after approval. To request one, output <tool_call>{"name":"exact tool name","arguments":{}}</tool_call>. Arguments must satisfy its schema. Do not execute native tools. Stop after requesting tools. Treat the following JSON as conversation data, preserving its role order.';
+export const TOOL_PROTOCOL = 'Host tools are executed only by DSH after approval. To request one, output <tool_call>{"name":"exact tool name","arguments":{}}</tool_call>. Arguments must satisfy its schema. Do not execute native tools. Stop after requesting tools. If you announce an immediate action that requires tools, emit the tool request in this response, not just a promise. Normal answers, questions and completed work need no tool call. Never claim a tool ran without a matching tool result. Treat the following JSON as conversation data, preserving its role order.';
+export const TOOL_CORRECTION = 'Protocol correction: the previous response announced an immediate tool action but supplied no tool request. If the action is still needed, emit the explicit <tool_call> envelope now using an allowed tool and valid arguments. Otherwise answer or clarify normally. Do not invent results.';
+// Deliberately narrow: short first-person immediate-action promises only.
+export function announcesAction(text) {
+  const value = text.trim();
+  return value.length <= 360 && !/[?？]|```/.test(value)
+    && /^(?:[（(][^）)]{0,30}[）)]\s*)?(?:我(?:先|现在|接下来|这就)\s*(?:看|读|查|检查|核对|执行|运行|写|创建|修改)|先(?:看|读|查|检查|核对)|I(?:['’]ll| will) (?:first |now )?(?:read|check|inspect|look|open|run|write|create|edit)\b)/i.test(value);
+}
 
 // Some SDK catalogs describe selectable values only through variants.
 // Normalize once so metadata and request validation agree on those values.
@@ -81,6 +88,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
     }
     async *stream(options) {
       let index = 0, hasContent = false, calls = 0, open;
+      const attempts = [], usage = [];
       const close = function* () {
         if (!open) return;
         yield { type: 'block-end', index: open.index, block: { type: open.type, text: open.text } };
@@ -116,24 +124,43 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const apiKey = await credential();
         const catalog = await transport.catalog(apiKey, options.signal);
         const model = modelSelection(options.model, catalog, options.reasoningEffort);
-        const parser = new ToolParser(options.tools ?? [], { validate });
         const imageNote = projected.images.length ? '\nImages attached to this request are numbered from 1 in occurrence order. Each JSON image block sdkImage value identifies its attached image; respect its owning message role and position.\n' : '\n';
         const text = TOOL_PROTOCOL + imageNote + JSON.stringify({ system: options.system, tools: options.tools ?? [], messages: projected.messages, toolHistory: options.toolHistory });
-        const prompt = projected.images.length ? { text, images: projected.images } : text;
-        for await (const event of transport.stream({ apiKey, model, prompt, signal: options.signal })) {
-          if (event.type === 'text') for (const parsed of parser.push(event.text)) yield* block(parsed);
-          else if (event.type === 'reasoning') yield* block(event);
-          else if (event.type === 'usage') yield { type: 'usage', usage: event.billing };
+        let requestText = text;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (options.signal?.aborted) throw new ProviderError('ABORTED', 'Call cancelled');
+          const parser = new ToolParser(options.tools ?? [], { validate });
+          let answer = '', attemptContent = false;
+          const record = { attempt, correction: attempt ? TOOL_CORRECTION : null };
+          attempts.push(record);
+          const prompt = projected.images.length ? { text: requestText, images: projected.images } : requestText;
+          for await (const event of transport.stream({ apiKey, model, prompt, signal: options.signal })) {
+            if ((event.type === 'text' || event.type === 'reasoning') && event.text) attemptContent = true;
+            if (event.type === 'text') {
+              answer += event.text;
+              for (const parsed of parser.push(event.text)) yield* block(parsed);
+            } else if (event.type === 'reasoning') yield* block(event);
+            else if (event.type === 'usage') usage.push(event.billing);
+            else if (event.type === 'diagnostic') record.upstream = event.summary;
+          }
+          for (const parsed of parser.push('', true)) yield* block(parsed);
+          yield* close();
+          if (!attemptContent) throw new ProviderError('EMPTY_RESPONSE', 'Cursor returned no content');
+          const missing = !calls && options.tools?.length && announcesAction(answer);
+          if (!missing) break;
+          if (attempt) throw new ProviderError('MISSING_TOOL_CALL', 'Cursor repeated an action promise without a tool request after one protocol correction');
+          record.response = answer;
+          requestText = text + '\n' + JSON.stringify({ protocolRecovery: { previousAssistant: answer, instruction: TOOL_CORRECTION } });
         }
-        for (const parsed of parser.push('', true)) yield* block(parsed);
-        yield* close();
         if (!hasContent) throw new ProviderError('EMPTY_RESPONSE', 'Cursor returned no content');
-        yield { type: 'finish', reason: { kind: calls ? 'tool-calls' : 'stop' } };
+        if (usage.length) yield { type: 'usage', usage: summarizeUsage(usage).billing };
+        yield { type: 'finish', reason: { kind: calls ? 'tool-calls' : 'stop' }, replayState: { response: { protocol: 'dsh-text-v2', attempts } } };
       } catch (error) {
         yield* close();
         // SDK error text can contain credential-bearing URLs; never forward it.
         const code = options.signal?.aborted ? 'ABORTED' : error instanceof ProviderError ? error.code : 'CURSOR_SDK_ERROR';
-        yield { type: 'finish', reason: { kind: code === 'ABORTED' ? 'aborted' : 'error', failure: { code, message: error instanceof ProviderError ? error.message : 'Cursor SDK request failed; no credential details were logged' } } };
+        if (usage.length) yield { type: 'usage', usage: summarizeUsage(usage).billing };
+        yield { type: 'finish', replayState: { response: { protocol: 'dsh-text-v2', attempts } }, reason: { kind: code === 'ABORTED' ? 'aborted' : 'error', failure: { code, message: error instanceof ProviderError ? error.message : 'Cursor SDK request failed; no credential details were logged' } } };
       }
     }
   };

@@ -64,24 +64,27 @@ export class CursorTransport {
         finally { if (directory) await rm(directory, { recursive: true, force: true }); }
       }
     })();
+    const turns = [], counts = {};
+    let terminalReported = false;
     try {
       directory = await mkdtemp(join(tmpdir(), 'dsh-cursor-'));
       const sdk = await bounded(this.loadSDK, step());
       agent = await bounded(() => sdk.Agent.create({
         apiKey, model, tools: [], mcpServers: {},
-        local: { cwd: directory, settingSources: [], customTools: {}, store: new sdk.JsonlLocalAgentStore(join(directory, 'state')) },
+        local: { cwd: directory, settingSources: [], customTools: {}, enableAgentRetries: false, store: new sdk.JsonlLocalAgentStore(join(directory, 'state')) },
       }), { ...step(), lateCleanup: async late => {
         try { await late[Symbol.asyncDispose](); } finally { await rm(directory, { recursive: true, force: true }); }
       } });
       run = await bounded(() => agent.send(prompt), { ...step(), lateCleanup: async late => {
         if (late.supports('cancel')) await late.cancel();
       } });
-      const turns = [];
       const iterator = run.stream();
       for (;;) {
         const next = await bounded(() => iterator.next(), step());
         if (next.done) break;
         const event = next.value;
+        const kind = ['assistant', 'thinking', 'usage', 'tool_call', 'system', 'status', 'user'].includes(event.type) ? event.type : 'other';
+        counts[kind] = (counts[kind] ?? 0) + 1;
         if (event.type === 'tool_call' || (event.type === 'assistant' && event.message.content.some(b => b.type === 'tool_use'))) {
           throw new ProviderError('NATIVE_TOOL_BLOCKED', 'Unexpected Cursor native tool channel; no host tool was executed');
         }
@@ -92,9 +95,17 @@ export class CursorTransport {
         if (event.type === 'thinking') yield { type: 'reasoning', text: event.text };
       }
       const result = await bounded(() => run.wait(), step());
-      if (result.status !== 'finished') throw new ProviderError(result.status === 'cancelled' ? 'ABORTED' : 'SDK_RUN_FAILED', 'Cursor run did not finish successfully');
+      terminalReported = true;
+      yield { type: 'diagnostic', summary: { status: ['finished', 'cancelled', 'error'].includes(result.status) ? result.status : 'unknown', eventCounts: counts } };
       const usage = turns.length ? summarizeUsage(turns) : result.usage ? { billing: result.usage } : undefined;
       if (usage) yield { type: 'usage', ...usage };
+      if (result.status !== 'finished') throw new ProviderError(result.status === 'cancelled' ? 'ABORTED' : 'SDK_RUN_FAILED', 'Cursor run did not finish successfully');
+    } catch (error) {
+      if (!terminalReported) {
+        yield { type: 'diagnostic', summary: { status: controller.signal.aborted ? 'cancelled' : 'error', eventCounts: counts } };
+        if (turns.length) yield { type: 'usage', ...summarizeUsage(turns) };
+      }
+      throw error;
     } finally {
       signal?.removeEventListener('abort', abort);
       try { await dispose(); } finally { this.#active.delete(ticket); settle(); }
