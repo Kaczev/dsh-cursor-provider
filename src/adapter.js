@@ -24,9 +24,14 @@ function reasoningParameter(model) {
 export function sdkCatalog(models) {
   return models.map(m => ({ ...m, parameters: parameterDefinitions(m).map(p => ({ ...p, values: p.values.map(v => v.value) })) }));
 }
-export function modelSelection(value, models, effort) {
+export function modelSelection(value, models, effort, fast) {
   const resolved = resolveVariant(value, sdkCatalog(models));
   const params = { ...resolved.parameters };
+  const fastParameter = parameterDefinitions(models.find(m => m.id === resolved.id)).find(p => p.id === 'fast');
+  const switchable = ['false', 'true'].every(value => fastParameter?.values.some(v => v.value === value));
+  if (fast === true && !switchable) throw new ProviderError('INVALID_PARAMETER', 'Model declares no switchable Fast parameter');
+  if (switchable) params.fast = String(fast ?? (params.fast === 'true'));
+
   if (effort !== undefined) {
     const parameter = reasoningParameter(models.find(m => m.id === resolved.id));
     if (!parameter) throw new ProviderError('INVALID_PARAMETER', 'Model declares no reasoning effort parameter');
@@ -70,7 +75,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
       const entry = catalog.find(m => m.id === selection.id);
       const efforts = reasoningParameter(entry)?.values;
       const custom = profile().models?.find(value => typeof value === 'object' && value.id === model);
-      const contextWindow = custom?.contextWindow ?? profile().contextWindow;
+      const contextWindow = custom ? custom.contextWindow : profile().contextWindow;
       return { provider, id: model, name: custom?.name || entry.displayName,
         ...(custom?.inputModalities ? { inputModalities: [...custom.inputModalities] } : {}),
         ...(contextWindow ? { context: { contextWindow } } : {}),
@@ -114,7 +119,8 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const projected = await imagePrompt(options, { attachments: attachments(), offloadedImageText });
         const apiKey = await credential();
         const catalog = await transport.catalog(apiKey, options.signal);
-        const model = modelSelection(options.model, catalog, options.reasoningEffort);
+        const configured = profile().models?.find(value => typeof value === 'object' && value.id === options.model);
+        const model = modelSelection(options.model, catalog, options.reasoningEffort, configured?.fast ?? false);
         const imageNote = projected.images.length ? '\nImages attached to this request are numbered from 1 in occurrence order. Each JSON image block sdkImage value identifies its attached image; respect its owning message role and position.\n' : '\n';
         const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ system: options.system, messages: projected.messages, toolHistory: options.toolHistory });
         const previous = [...options.messages].reverse().find(message => message.role === 'assistant');

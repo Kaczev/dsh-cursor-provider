@@ -1,1 +1,60 @@
-<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Cursor 模型编辑参考</title><style>:root{color-scheme:dark;font:14px system-ui;background:#222;color:#eee}main{max-width:720px;margin:32px auto;padding:24px;background:#303033;border-radius:16px}input,button{font:inherit;color:inherit;background:#222;border:1px solid #555;padding:12px;border-radius:8px}button{cursor:pointer}.row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.model{border:1px solid #555;border-radius:14px;padding:12px;margin:16px 0}.model input{min-width:0;flex:1}p{color:#aaa;line-height:1.7}.empty{padding:24px;border:1px dashed #555;border-radius:14px;text-align:center}dialog{color:inherit;background:#303033;border:1px solid #555;border-radius:16px;padding:24px;width:min(500px,80vw)}dialog::backdrop{background:#0008}</style><main><h2>Cursor 配置</h2><p>离线交互参考，不连接账号；示例模型仅为占位。</p><label>API 密钥</label><p><input type="password" disabled placeholder="留空保留已有密钥"></p><div class="row"><h3>模型目录</h3><button onclick="picker.showModal()">获取可用模型</button></div><section id="models"><p class="empty">模型选择器中将不显示任何模型；目录外 ID 仍需通过账号目录校验。</p></section><button onclick="add()">＋ 添加模型</button><p>上下文窗口仅控制 DSH 预算，留空沿用提供商配置，否则未知。最大输出 token：SDK 未提供控制入口。图片：通过 SDK 发送；具体模型视觉能力由 Cursor 决定。</p><fieldset id="input-types"><legend>输入类型</legend><label><input type="checkbox" checked onchange="guard(this)">文字</label><label><input type="checkbox" checked onchange="guard(this)">图片</label></fieldset><p>至少保留一种输入类型。未勾选图片时由 DSH 转换为文字占位。既有未声明的模型保持原行为，修改勾选后保存为显式声明。</p><button>保存配置</button><script>function guard(el){const boxes=[...document.querySelectorAll('#input-types input')];if(!boxes.some(b=>b.checked))el.checked=true;boxes.forEach(b=>b.disabled=b.checked&&boxes.filter(x=>x.checked).length===1)}</script></main><dialog id="picker"><h2>选择要添加的模型</h2><p>勾选要添加的模型（离线示例）。</p><input placeholder="搜索模型"><p><label><input id="chosen" type="checkbox"> 示例模型（非账号数据）</label></p><div class="row"><button onclick="picker.close()">取消</button><button onclick="if(chosen.checked)add('example-model');picker.close()">添加所选</button></div></dialog><script>function add(id=''){if(document.querySelector('.empty'))models.innerHTML='';const el=document.createElement('div');el.className='model';el.innerHTML='<div class="row"><input placeholder="模型 ID" value="'+id+'"><input placeholder="显示名称"><button onclick="this.closest(\'.model\').remove()">删除</button></div><details><summary>高级设置</summary><p>上下文窗口（DSH 预算）</p><input type="number" placeholder="默认 / 未知"><p>最大输出 token 数：SDK 不支持指定</p><label><input type="checkbox" checked disabled>文本</label> <label><input type="checkbox" disabled>图片（暂不支持）</label></details>';models.append(el)}</script></html>
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cursor 模型编辑参考</title>
+<style>
+:root{color-scheme:dark;font:15px system-ui;background:#27282a;color:#eee}*{box-sizing:border-box}main{max-width:1100px;margin:32px auto;padding:24px}h2{font-size:22px}.muted{color:#aaa;font-size:13px;line-height:1.6}button,input{font:inherit;color:inherit}button{cursor:pointer}input[type=text],input[type=password]{width:100%;min-width:0;background:#232323;border:1px solid #505154;border-radius:13px;padding:13px 16px}button{background:transparent;border:1px solid #555;border-radius:9px;padding:9px 13px}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px}.model{border:1px solid #56575a;border-radius:20px;padding:12px;margin:12px 0;background:#333537}.head{display:grid;grid-template-columns:1.4fr 1fr auto auto;gap:10px;align-items:center}.icon{border:0;color:#bbb;padding:10px}.body{padding:18px 4px 7px}.body[hidden]{display:none}.options{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;min-height:32px}.options-caption{color:#bbb}.choice{display:inline-flex;align-items:center;gap:8px;cursor:pointer}.choice input{accent-color:#eee;width:18px;height:18px;margin:0}.types{display:flex;flex-wrap:wrap;align-items:center;gap:18px}.fast-choice{padding-left:18px;border-left:1px solid #4c4d50;min-height:22px}.fast-choice[hidden]{display:none}.status{min-height:24px;color:#b8c9ed;font-size:13px}@media(max-width:620px){main{margin:0;padding:16px}.head{grid-template-columns:1fr auto auto}.head .name{grid-column:1;grid-row:2}.head .toggle{grid-column:2;grid-row:1}.head .delete{grid-column:3;grid-row:1}.toolbar{flex-wrap:wrap}.options{gap:8px 14px}.fast-choice{padding-left:0;border-left:0}}
+.capacities{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 28px 28px;gap:10px;margin-bottom:18px}.capacities label:nth-child(2){grid-column:2/-1}.head{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 28px 28px}.body{padding:18px 0 7px}.capacities label{display:grid;gap:8px;color:#bbb}button:disabled{opacity:.4;cursor:default}
+</style>
+<main>
+<h2>Cursor 配置</h2>
+<p class="muted">0.2.1 方案预览 · 以下为离线示例，能力状态不是账号目录数据。不连接 Cursor，不保存实际配置。</p>
+<label>API 密钥<input type="password" disabled placeholder="留空保留已有密钥" style="margin:10px 0 20px"></label>
+<div class="toolbar"><h3>已自定义模型目录</h3><button onclick="announce('离线预览不获取账号目录。')">获取可用模型</button></div>
+<section id="models" aria-label="自定义模型"></section>
+<button onclick="addModel('example-model','示例模型',false,false)">＋ 添加示例模型</button>
+<p id="capacity-error" class="muted" role="alert"></p>
+<p class="muted">仅对账号目录声明可开关 Fast 的模型显示开关。能力结果在内存中缓存 24 小时；手动获取立即刷新。查询失败不代表能力撤销。Fast 可能消耗更多用量。</p>
+<button onclick="revokeFast()">模拟成功刷新后 Fast 能力消失</button>
+<button id="save" onclick="announce('仅演示：没有保存配置或发起模型请求。')">保存配置</button>
+<p id="status" class="status" role="status"></p>
+</main>
+<script>
+// Pure name transform: remove only a suffix previously appended by this switch.
+function fastName(name,enabled,automatic){
+  if(enabled){
+    if(/\bfast\b/i.test(name))return {name,automatic};
+    return {name:name.trimEnd()+' Fast',automatic:true};
+  }
+  return {name:automatic?name.replace(/ Fast$/,''):name,automatic:false};
+}
+function validCapacity(text){if(!text.trim())return true;const m=/^(\d+(?:\.\d+)?)([km])?$/i.exec(text.trim());if(!m)return false;const n=Number(m[1])*({k:1000,m:1000000}[m[2]?.toLowerCase()]??1);return Number.isSafeInteger(n)&&n>0}
+function validateCapacities(){const i=[...document.querySelectorAll('.capacity')].findIndex(input=>!validCapacity(input.value));document.getElementById('capacity-error').textContent=i<0?'':'模型 '+(i+1)+'：上下文窗口必须是正数，例如 131072、256K 或 1M。';document.getElementById('save').disabled=i>=0}
+function announce(text){document.getElementById('status').textContent=text}
+function addModel(id,name,supportsFast,enabled){
+  const card=document.createElement('article');card.className='model';
+  // Fast 与输入类型共用一行：说明、两个类型选项、细分隔线、Fast 复选框。
+  card.innerHTML='<div class="head"><input class="id" type="text" aria-label="模型 ID"><input class="name" type="text" aria-label="模型名称"><button class="icon toggle" aria-label="收起模型设置" aria-expanded="true">⌃</button><button class="icon delete" aria-label="删除模型">✕</button></div><div class="body"><div class="capacities"><label>上下文窗口<input class="capacity" type="text" placeholder="未知"></label><label>最大输出 token 数<input type="text" disabled placeholder="使用提供商默认值"></label></div><div class="options"><span class="options-caption" id="types-caption">输入类型</span><div class="types" role="group" aria-labelledby="types-caption"><label class="choice"><input type="checkbox" checked> 文本</label><label class="choice"><input type="checkbox" checked> 图片</label></div><label class="choice fast-choice"><input class="fast" type="checkbox" aria-label="Fast"> Fast</label></div></div>';
+  card.querySelector('.id').value=id;
+  const capacity=card.querySelector('.capacity');
+  capacity.value=id.match(/(?:@|,)context=([^,]+)/)?.[1]?.toUpperCase() ?? '';
+  capacity.oninput=validateCapacities;
+  capacity.onblur=()=>{if(validCapacity(capacity.value))capacity.value=capacity.value.trim().toUpperCase()};
+  const input=card.querySelector('.name'),fast=card.querySelector('.fast');input.value=name;fast.checked=enabled;
+  card.querySelector('.fast-choice').hidden=!supportsFast;
+  let automatic=false;
+  fast.onchange=()=>{const result=fastName(input.value,fast.checked,automatic);input.value=result.name;automatic=result.automatic;announce(fast.checked?'已开启 Fast（离线示意）。':'已关闭 Fast（离线示意）。')};
+  input.oninput=()=>{automatic=false};
+  card.querySelector('.toggle').onclick=e=>{const body=card.querySelector('.body');body.hidden=!body.hidden;e.currentTarget.textContent=body.hidden?'⌄':'⌃';e.currentTarget.setAttribute('aria-expanded',String(!body.hidden));e.currentTarget.setAttribute('aria-label',body.hidden?'展开模型设置':'收起模型设置')};
+  card.querySelector('.delete').onclick=()=>card.remove();
+  card.querySelectorAll('.types input').forEach(box=>box.onchange=()=>{const all=[...card.querySelectorAll('.types input')];if(!all.some(b=>b.checked))box.checked=true});
+  card.revokeFast=()=>{if(fast.checked){const result=fastName(input.value,false,automatic);input.value=result.name;automatic=false;fast.checked=false;}card.querySelector('.fast-choice').hidden=true;};
+  document.getElementById('models').append(card);
+}
+function revokeFast(){document.querySelectorAll('.model').forEach(card=>card.revokeFast());announce('成功的新目录已确认能力撤销：Fast 关闭；手动名称保留。')}
+addModel('grok-4.7','Grok-4.7',true,false);
+addModel('grok-4.6','Grok-4.6 Fast',true,true);
+addModel('example-model','未声明 Fast 能力的示例',false,false);
+</script>
+</html>

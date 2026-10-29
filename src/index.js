@@ -11,7 +11,7 @@ export const Config = z.object({
   providers: z.dict(z.object({
     apiKeyEnv: z.string().role('credential-ref'),
     displayName: z.string(),
-    models: z.array(z.union([z.string(), z.object({ id: z.string().required(), name: z.string(), inputModalities: z.array(z.union([z.const('text'), z.const('image')])).min(1).default(undefined), contextWindow: z.number().step(1).min(1) })])),
+    models: z.array(z.union([z.string(), z.object({ id: z.string().required(), name: z.string(), inputModalities: z.array(z.union([z.const('text'), z.const('image')])).min(1).default(undefined), contextWindow: z.number().step(1).min(1), fast: z.boolean(), fastNameAuto: z.boolean() })])),
     contextWindow: z.number().step(1).min(1),
   })).default({}).volatile(),
 });
@@ -50,6 +50,13 @@ export function apply(ctx, config) {
     if (request.baseURL) throw new ProviderError('UNSUPPORTED_ENDPOINT', 'Cursor uses its official SDK endpoint, not a custom base URL');
     const key = request.apiKey || await credential();
     const models = await transport.catalog(key, signal, { refresh: true });
-    return models.map(m => ({ id: m.id, name: m.displayName }));
+    return models.flatMap(m => {
+      const values = new Set([...(m.parameters?.find(p => p.id === 'fast')?.values ?? []).map(v => v.value), ...(m.variants ?? []).flatMap(v => v.params.filter(p => p.id === 'fast').map(p => p.value))]);
+      const variants = (m.variants ?? []).filter(v => v.params.length).map(v => ({
+        id: m.id + '@' + [...v.params].sort((a,b) => a.id.localeCompare(b.id)).map(p => `${p.id}=${p.value}`).join(','),
+        name: `${m.displayName} · ${v.displayName}`,
+      }));
+      return [{ id: m.id, name: m.displayName }, ...variants, ...(['false','true'].every(value => values.has(value)) ? ['false','true'].map(value => ({ id: m.id + '@fast=' + value, name: m.displayName + (value === 'true' ? ' Fast' : '') })) : [])];
+    });
   });
 }

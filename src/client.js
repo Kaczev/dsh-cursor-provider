@@ -2,6 +2,16 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
   const React = require('react'), h = React.createElement;
   return { inject: ['slots', 'locale', 'remote', 'remote.credentials', 'remote.llm'], apply(ctx) {
     const ns = 'cursor-provider';
+    // Successful discovery only; scoped to the settings document and revision.
+    // No credentials or capability data are persisted to browser storage.
+    const fastCache = new WeakMap();
+    const fastCacheTTL = 24 * 60 * 60 * 1000;
+    const supportsFast = (ids, id) => ['false', 'true'].every(value => ids.includes(id.trim().split('@')[0] + '@fast=' + value));
+    const reconcileFast = (rows, ids) => rows.map(row => {
+      if (!row.fast || supportsFast(ids, row.id)) return row;
+      return { ...row, fast: false, fastNameAuto: false,
+        name: row.fastNameAuto ? (row.name ?? '').replace(/ Fast$/, '') : (row.name ?? '') };
+    });
 
     ctx.locale.register(ns, {
       zh: {
@@ -40,8 +50,9 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         modelNamePlaceholder: '留空时使用模型 ID',
         modelAdvanced: '模型选项',
         removeModel: '删除模型',
+        fast: 'Fast',
         contextWindow: '上下文窗口',
-        contextWindowPlaceholder: '使用提供商默认值',
+        contextWindowPlaceholder: '未知',
         maxTokens: '最大输出 token 数',
         maxTokensPlaceholder: '使用提供商默认值',
         maxTokensHint: 'SDK 不支持指定最大输出 token 数，使用服务端默认值。',
@@ -100,8 +111,9 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         modelNamePlaceholder: 'Uses the model ID when empty',
         modelAdvanced: 'Model options',
         removeModel: 'Delete model',
+        fast: 'Fast',
         contextWindow: 'Context window',
-        contextWindowPlaceholder: 'Uses the provider default',
+        contextWindowPlaceholder: 'Unknown',
         maxTokens: 'Max output tokens',
         maxTokensPlaceholder: 'Uses the provider default',
         maxTokensHint: 'The SDK does not expose max output tokens; the server default applies.',
@@ -141,13 +153,20 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       const scale = suffix === 'k' || suffix === 'm' ? CAPACITY_SCALE[suffix] : 1;
       const scaled = Number(match[1]) * scale;
       const rounded = Math.round(scaled);
-      return Math.abs(scaled - rounded) < 1e-6 ? rounded : scaled;
+      return Number.isSafeInteger(rounded) && rounded > 0 && Math.abs(scaled - rounded) < 1e-6 ? rounded : Number.NaN;
     }
     function formatCapacity(value) {
       if (!Number.isInteger(value) || value <= 0) return String(value);
       if (value % CAPACITY_SCALE.m === 0) return String(value / CAPACITY_SCALE.m) + 'M';
       if (value % CAPACITY_SCALE.k === 0) return String(value / CAPACITY_SCALE.k) + 'K';
       return String(value);
+    }
+
+    function initialCapacity(id) {
+      const params = id.split('@')[1]?.split(',') ?? [];
+      const text = params.find(p => p.split('=')[0].trim() === 'context')?.split('=')[1];
+      const value = text === undefined ? undefined : parseCapacity(text);
+      return Number.isSafeInteger(value) && value > 0 ? formatCapacity(value) : '';
     }
 
     function failure(result) {
@@ -196,6 +215,9 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
           inputModalities: Array.isArray(item.inputModalities) && item.inputModalities.length > 0
             ? item.inputModalities.filter(type => type === 'text' || type === 'image')
             : undefined,
+          ...item,
+          fast: item.fast === true,
+          fastNameAuto: item.fastNameAuto === true,
           capacity: typeof item.contextWindow === 'number' ? formatCapacity(item.contextWindow) : '',
         };
       });
@@ -226,6 +248,9 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       '.dcp-editorHeader{display:flex;align-items:baseline;gap:8px}',
       '.dcp-editorTitle{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary)}',
       '.dcp-editorRoute{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}',
+      '.dcp-modelOptionsRow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-height:32px}',
+      '.dcp-modelOptionsRow>.dcp-modelFieldLabel{margin:0;flex:0 0 auto}',
+      '.dcp-fastChoice{padding-left:16px;border-left:0.5px solid var(--dsw-alias-border-l3)}',
       '.dcp-field{display:flex;flex-direction:column;gap:6px}',
       '.dcp-fieldLabel{display:inline-flex;align-items:center;gap:10px;font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-secondary)}',
       '.dcp-helpWrap{position:relative;display:inline-flex}',
@@ -258,11 +283,10 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       '.dcp-modelRow{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px}',
       '.dcp-iconButton{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}',
       '.dcp-iconButton:disabled{opacity:0.4;cursor:default}',
-      '.dcp-modelAdvanced{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 4px 2px}',
+      '.dcp-modelAdvanced{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 28px 28px;column-gap:6px;row-gap:8px;padding:8px 0 2px}',
+      '.dcp-modelAdvanced>.dcp-modelField:nth-child(2){grid-column:2/-1}',
       '.dcp-modelField{display:flex;flex-direction:column;min-width:0;gap:4px}',
       '.dcp-modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}',
-      '.dcp-modelInputTypes{grid-column:1/-1;min-width:0;margin:0;padding:0;border:none}',
-      '.dcp-modelInputTypes legend{padding:0;margin-bottom:4px}',
       '.dcp-modelInputChoices{display:flex;flex-wrap:wrap;align-items:center;gap:16px;min-height:32px}',
       '.dcp-modelInputNote{grid-column:1/-1;margin:0}',
       '.dcp-modelEmpty{margin:0;padding:12px;border:1px dashed var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-lg);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;text-align:center}',
@@ -324,6 +348,36 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       const [picker, setPicker] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [notice, setNotice] = React.useState(null);
+      const [fastModels, setFastModels] = React.useState([]);
+      const acceptCapabilities = ids => {
+        setFastModels(ids);
+        setDraft(previous => previous ? { ...previous, models: reconcileFast(previous.models, ids) } : previous);
+        const models = state.value?.providers?.cursor?.models;
+        if (!Array.isArray(models) || !state.writable || state.status !== 'ready') return;
+        const next = reconcileFast(models, ids);
+        if (next.some((row, index) => row !== models[index])) {
+          scope.mutate([{ op: 'set', path: ['providers', 'cursor', 'models'], value: next }], state.revision)
+            .then(ok => { if (!ok) setNotice({ tone: 'error', text: t('fail') }); })
+            .catch(() => setNotice({ tone: 'error', text: t('fail') }));
+        }
+      };
+      React.useEffect(() => {
+        let active = true;
+        setFastModels([]);
+        if (view === 'summary' || key.trim()) return;
+        const cached = fastCache.get(scope);
+        if (cached?.revision === state.revision && cached.expires > Date.now()) {
+          acceptCapabilities(cached.ids);
+          return;
+        }
+        ctx.remote.llm.discoverModels(ns, { provider: 'cursor' }).then(result => {
+          if (!active || !result.ok) return;
+          const ids = result.value.map(m => m.id);
+          fastCache.set(scope, { ids, revision: state.revision, expires: Date.now() + fastCacheTTL });
+          acceptCapabilities(ids);
+        }).catch(() => {});
+        return () => { active = false; };
+      }, [scope, view, state.revision, key]);
       const canKey = useRemoteAccess('credentials/set');
       const canLoad = useRemoteAccess('llm/discoverModels');
       const profile = state.value?.providers?.cursor ?? {};
@@ -347,6 +401,8 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
 
       async function load() {
         setBusy(true); setNotice(null);
+        setFastModels([]);
+        fastCache.delete(scope);
         try {
           const result = await ctx.remote.llm.discoverModels(ns, {
             provider: 'cursor',
@@ -356,13 +412,21 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
             setNotice({ tone: 'error', text: t('fail') + ' [' + failure(result) + ']' });
             return;
           }
+          const ids = result.value.map(m => m.id);
+          if (!key.trim()) {
+            fastCache.set(scope, { ids, revision: state.revision, expires: Date.now() + fastCacheTTL });
+            acceptCapabilities(ids);
+          } else {
+            setFastModels(ids);
+            setDraft(previous => previous ? { ...previous, models: reconcileFast(previous.models, ids) } : previous);
+          }
           if (result.value.length === 0) {
             setNotice({ tone: 'hint', text: t('fetchEmpty') });
             return;
           }
           const configured = new Set(rows.map(row => row.id.trim()).filter(id => id.length > 0));
           const stored = result.value.filter(model => configured.has(model.id)).map(model => model.id);
-          setPicker({ models: result.value, query: '', checked: stored.length > 0 ? stored : result.value.map(model => model.id) });
+          setPicker({ models: result.value.filter(model => !/^[^@]+@fast=(true|false)$/.test(model.id)), query: '', checked: stored.length > 0 ? stored : result.value.filter(model => !/^[^@]+@fast=(true|false)$/.test(model.id)).map(model => model.id) });
         } catch {
           setNotice({ tone: 'error', text: t('fail') + ' [CLIENT_TRANSPORT_FAILED]' });
         } finally {
@@ -384,7 +448,9 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
           const models = rows.map(row => {
             const capacity = parseCapacity(row.capacity);
             return {
+              ...Object.fromEntries(Object.entries(row).filter(([key]) => !['capacity','capacityPending','contextWindow','name','id','inputModalities'].includes(key))),
               id: row.id.trim(),
+              fast: row.fast === true,
               ...(row.name.trim().length > 0 ? { name: row.name.trim() } : {}),
               ...(Array.isArray(row.inputModalities) ? { inputModalities: [...row.inputModalities] } : {}),
               ...(capacity !== undefined ? { contextWindow: capacity } : {}),
@@ -414,7 +480,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         const keep = rows.filter(row => picker.checked.includes(row.id.trim()));
         const added = picker.models
           .filter(model => picker.checked.includes(model.id) && !keep.some(row => row.id.trim() === model.id))
-          .map(model => ({ id: model.id, name: model.name ?? '', capacity: '' }));
+          .map(model => ({ id: model.id, name: model.name ?? '', capacity: initialCapacity(model.id) }));
         setDraft({ ...current, models: [...keep, ...added], inheritModels: false });
         setExpanded([]);
         setPicker(null);
@@ -426,15 +492,18 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         const selected = modalities(row);
         const lockedType = selected.length === 1 ? selected[0] : undefined;
         const capacity = capacityFailure(row, index);
+        const fastSupported = supportsFast(fastModels, row.id);
+        const captionId = 'dcp-input-types-' + index;
         return h('div', { className: 'dcp-modelEntry', key: index },
           h('div', { className: 'dcp-modelRow' },
             h('input', {
               className: 'dcp-input', type: 'text', value: row.id, placeholder: t('modelId'),
               'aria-label': t('modelId') + ' ' + position, disabled, onChange: event => update(index, { id: event.target.value }),
+              onBlur: () => { if (row.capacityPending && row.id.trim()) update(index, { capacity: initialCapacity(row.id), capacityPending: false }); },
             }),
             h('input', {
               className: 'dcp-input', type: 'text', value: row.name, placeholder: t('modelNamePlaceholder'),
-              'aria-label': t('modelName') + ' ' + position, disabled, onChange: event => update(index, { name: event.target.value }),
+              'aria-label': t('modelName') + ' ' + position, disabled, onChange: event => update(index, { name: event.target.value, fastNameAuto: false }),
             }),
             h('button', {
               type: 'button', className: 'dcp-iconButton', 'aria-label': t('modelAdvanced') + ' ' + position,
@@ -448,22 +517,18 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
           open ? h('div', { className: 'dcp-modelAdvanced' },
             h('label', { className: 'dcp-modelField' },
               h('span', { className: 'dcp-modelFieldLabel' }, t('contextWindow')),
-              h('input', {
-                className: 'dcp-input', type: 'text', inputMode: 'numeric', value: row.capacity,
-                placeholder: t('contextWindowPlaceholder'), 'aria-label': t('contextWindow') + ' ' + position,
-                'aria-invalid': capacity !== undefined, disabled, onChange: event => update(index, { capacity: event.target.value }),
-              }),
-            ),
+              h('input', { className: 'dcp-input', type: 'text', value: row.capacity, placeholder: t('contextWindowPlaceholder'),
+                'aria-label': t('contextWindow') + ' ' + position, 'aria-invalid': capacity !== undefined, disabled,
+                onChange: event => update(index, { capacity: event.target.value, capacityPending: false }),
+                onBlur: () => { if (parseCapacity(row.capacity) > 0) update(index, { capacity: row.capacity.trim().toUpperCase(), capacityPending: false }); },
+              })),
             h('label', { className: 'dcp-modelField' },
               h('span', { className: 'dcp-modelFieldLabel' }, t('maxTokens')),
-              h('input', {
-                className: 'dcp-input', type: 'text', value: '', placeholder: t('maxTokensPlaceholder'),
-                'aria-label': t('maxTokens') + ' ' + position, title: t('maxTokensHint'), readOnly: true, disabled: true,
-              }),
-            ),
-            h('fieldset', { className: 'dcp-modelInputTypes', 'aria-label': t('modelInputTypes') + ' ' + position },
-              h('legend', { className: 'dcp-modelFieldLabel' }, t('modelInputTypes')),
-              h('div', { className: 'dcp-modelInputChoices' },
+              h('input', { className: 'dcp-input', type: 'text', value: '', placeholder: t('maxTokensPlaceholder'), disabled: true,
+                'aria-label': t('maxTokens') + ' ' + position, title: t('maxTokensHint') })),
+            h('div', { className: 'dcp-modelOptionsRow' },
+              h('span', { className: 'dcp-modelFieldLabel', id: captionId }, t('modelInputTypes')),
+              h('div', { className: 'dcp-modelInputChoices', role: 'group', 'aria-labelledby': captionId },
                 ['text', 'image'].map(type => h('label', { className: 'dcp-checkbox', key: type },
                   h('input', {
                     type: 'checkbox', checked: selected.includes(type), disabled: disabled || lockedType === type,
@@ -474,6 +539,18 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
                   h('span', null, t(type === 'text' ? 'modelInputText' : 'modelInputImage')),
                 )),
               ),
+              fastSupported ? h('label', { className: 'dcp-checkbox dcp-fastChoice' },
+                h('input', { type: 'checkbox', checked: row.fast === true, disabled, 'aria-label': t('fast') + ' ' + position,
+                  onChange: event => {
+                    const enabled = event.target.checked;
+                    let name = row.name || row.id.split('@')[0], automatic = row.fastNameAuto === true;
+                    if (enabled && !/\bfast\b/i.test(name)) { name = name.trimEnd() + ' Fast'; automatic = true; }
+                    if (!enabled && automatic) { name = name.replace(/ Fast$/, ''); automatic = false; }
+                    update(index, { fast: enabled, name, fastNameAuto: automatic });
+                  },
+                }),
+                h('span', null, t('fast')),
+              ) : null,
             ),
             selected.includes('image') ? null : h('p', { className: 'dcp-advancedHint dcp-modelInputNote' }, t('imageNote')),
           ) : null,
@@ -613,7 +690,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
                 h('button', {
                   type: 'button', className: 'dcp-addModelButton', disabled,
                   onClick: () => {
-                    setDraft({ ...current, models: [...rows, { id: '', name: '', capacity: '' }], inheritModels: false });
+                    setDraft({ ...current, models: [...rows, { id: '', name: '', capacity: '', capacityPending: true }], inheritModels: false });
                     setExpanded([...expanded, rows.length]);
                   },
                 }, GLYPH.plus(), t('addModel')),
