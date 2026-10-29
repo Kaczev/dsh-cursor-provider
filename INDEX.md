@@ -2,6 +2,7 @@
 
 - [交接入口](HANDOFF.md)：原始约束、SDK 与宿主契约研究。
 - [使用与验证](README.md)：配置入口、限制及验证状态。
+- [MIT 许可](LICENSE)：项目使用、修改及分发许可。
 - [配置视觉参考](design/cursor-provider.html)：插件配置面板的离线参考。
 - [Host 入口](src/index.js)：配置 schema、凭据解析及供应商注册。
 - [Client 面板](src/client.js)：官方配置插槽、主题变量、凭据写入与模型目录。
