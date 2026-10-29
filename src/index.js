@@ -2,7 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import Ajv from 'ajv';
 import { LlmAdapter, offloadedImageText } from '@deepseek-ai/dsh-llm';
 import { CursorTransport, ATTRIBUTION_NOTICE } from './transport.js';
-import { defineAdapter } from './adapter.js';
+import { defineAdapter, contextChoices } from './adapter.js';
 import { ProviderError } from './provider.js';
 
 export const name = 'cursor-provider';
@@ -52,11 +52,10 @@ export function apply(ctx, config) {
     const models = await transport.catalog(key, signal, { refresh: true });
     return models.flatMap(m => {
       const values = new Set([...(m.parameters?.find(p => p.id === 'fast')?.values ?? []).map(v => v.value), ...(m.variants ?? []).flatMap(v => v.params.filter(p => p.id === 'fast').map(p => p.value))]);
-      const variants = (m.variants ?? []).filter(v => v.params.length).map(v => ({
-        id: m.id + '@' + [...v.params].sort((a,b) => a.id.localeCompare(b.id)).map(p => `${p.id}=${p.value}`).join(','),
-        name: `${m.displayName} · ${v.displayName}`,
-      }));
-      return [{ id: m.id, name: m.displayName }, ...variants, ...(['false','true'].every(value => values.has(value)) ? ['false','true'].map(value => ({ id: m.id + '@fast=' + value, name: m.displayName + (value === 'true' ? ' Fast' : '') })) : [])];
+      // Parameter rows are private capability carriers; the picker shows base IDs only.
+      return [{ id: m.id, name: m.displayName, ...(contextChoices(m).at(-1) ? {contextWindow:contextChoices(m).at(-1).tokens} : {}) },
+        ...contextChoices(m).map(p => ({id:m.id+'@context='+p.value,contextWindow:p.tokens})),
+        ...(['false','true'].every(value => values.has(value)) ? ['false','true'].map(value => ({ id: m.id + '@fast=' + value, name: m.displayName + (value === 'true' ? ' Fast' : '') })) : [])];
     });
   });
 }

@@ -30,16 +30,19 @@ function fastName(name,enabled,automatic){
   return {name:automatic?name.replace(/ Fast$/,''):name,automatic:false};
 }
 function validCapacity(text){if(!text.trim())return true;const m=/^(\d+(?:\.\d+)?)([km])?$/i.exec(text.trim());if(!m)return false;const n=Number(m[1])*({k:1000,m:1000000}[m[2]?.toLowerCase()]??1);return Number.isSafeInteger(n)&&n>0}
-function validateCapacities(){const i=[...document.querySelectorAll('.capacity')].findIndex(input=>!validCapacity(input.value));document.getElementById('capacity-error').textContent=i<0?'':'模型 '+(i+1)+'：上下文窗口必须是正数，例如 131072、256K 或 1M。';document.getElementById('save').disabled=i>=0}
+function validateCapacities(){const i=[...document.querySelectorAll('.capacity')].findIndex(input=>!validCapacity(input.value)||!input.validity.valid);document.getElementById('capacity-error').textContent=i<0?'':'模型 '+(i+1)+'：上下文窗口必须是正数，例如 131072、256K 或 1M。';document.getElementById('save').disabled=i>=0}
 function announce(text){document.getElementById('status').textContent=text}
-function addModel(id,name,supportsFast,enabled){
+function addModel(id,name,supportsFast,enabled,contexts=[]){
   const card=document.createElement('article');card.className='model';
   // Fast 与输入类型共用一行：说明、两个类型选项、细分隔线、Fast 复选框。
-  card.innerHTML='<div class="head"><input class="id" type="text" aria-label="模型 ID"><input class="name" type="text" aria-label="模型名称"><button class="icon toggle" aria-label="收起模型设置" aria-expanded="true">⌃</button><button class="icon delete" aria-label="删除模型">✕</button></div><div class="body"><div class="capacities"><label>上下文窗口<input class="capacity" type="text" placeholder="未知"></label><label>最大输出 token 数<input type="text" disabled placeholder="使用提供商默认值"></label></div><div class="options"><span class="options-caption" id="types-caption">输入类型</span><div class="types" role="group" aria-labelledby="types-caption"><label class="choice"><input type="checkbox" checked> 文本</label><label class="choice"><input type="checkbox" checked> 图片</label></div><label class="choice fast-choice"><input class="fast" type="checkbox" aria-label="Fast"> Fast</label></div></div>';
+  card.innerHTML='<div class="head"><input class="id" type="text" aria-label="模型 ID"><input class="name" type="text" aria-label="模型名称"><button class="icon toggle" aria-label="收起模型设置" aria-expanded="true">⌃</button><button class="icon delete" aria-label="删除模型">✕</button></div><div class="body"><div class="capacities"><label>上下文窗口<input class="capacity" type="text" placeholder="使用提供商默认值"></label><label>最大输出 token 数<input type="text" disabled placeholder="使用提供商默认值"></label></div><div class="options"><span class="options-caption" id="types-caption">输入类型</span><div class="types" role="group" aria-labelledby="types-caption"><label class="choice"><input type="checkbox" checked> 文本</label><label class="choice"><input type="checkbox" checked> 图片</label></div><label class="choice fast-choice"><input class="fast" type="checkbox" aria-label="Fast"> Fast</label></div></div>';
   card.querySelector('.id').value=id;
   const capacity=card.querySelector('.capacity');
-  capacity.value=id.match(/(?:@|,)context=([^,]+)/)?.[1]?.toUpperCase() ?? '';
-  capacity.oninput=validateCapacities;
+  capacity.value=contexts.length ? String(Math.max(...contexts)/1000)+'K' : '';
+  const mapping=document.createElement('p');mapping.className='muted';card.querySelector('.capacities').after(mapping);
+  const showMapping=()=>{const m=/^(\d+(?:\.\d+)?)([km])?$/i.exec(capacity.value.trim());const budget=m?Number(m[1])*({k:1000,m:1000000}[m[2]?.toLowerCase()]??1):0;const sdk=budget ? [...contexts].sort((a,b)=>a-b).find(n=>n>=budget) : Math.max(...contexts);mapping.textContent=contexts.length ? (sdk ? 'DSH 预算：'+(budget||Math.max(...contexts))+' · Cursor SDK 档位：'+sdk : '预算超过已声明的最大档位，不能保存。') : '未声明 context：手填值只影响 DSH 压缩预算。';capacity.setCustomValidity(contexts.length&&!sdk?'预算超过最大档位':'');};
+  showMapping();
+  capacity.oninput=()=>{showMapping();validateCapacities()};
   capacity.onblur=()=>{if(validCapacity(capacity.value))capacity.value=capacity.value.trim().toUpperCase()};
   const input=card.querySelector('.name'),fast=card.querySelector('.fast');input.value=name;fast.checked=enabled;
   card.querySelector('.fast-choice').hidden=!supportsFast;
@@ -53,8 +56,8 @@ function addModel(id,name,supportsFast,enabled){
   document.getElementById('models').append(card);
 }
 function revokeFast(){document.querySelectorAll('.model').forEach(card=>card.revokeFast());announce('成功的新目录已确认能力撤销：Fast 关闭；手动名称保留。')}
-addModel('grok-4.7','Grok-4.7',true,false);
+addModel('grok-4.7','Grok-4.7',true,false,[250000,500000]);
 addModel('grok-4.6','Grok-4.6 Fast',true,true);
-addModel('example-model','未声明 Fast 能力的示例',false,false);
+addModel('default','Default · 无 context 参数',false,false);
 </script>
 </html>

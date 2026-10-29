@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         removeModel: '删除模型',
         fast: 'Fast',
         contextWindow: '上下文窗口',
-        contextWindowPlaceholder: '未知',
+        contextWindowPlaceholder: '使用提供商默认值',
         maxTokens: '最大输出 token 数',
         maxTokensPlaceholder: '使用提供商默认值',
         maxTokensHint: 'SDK 不支持指定最大输出 token 数，使用服务端默认值。',
@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         modelIdRequired: '模型 ID 不能为空。',
         modelIdDuplicate: '模型 ID 不能重复。',
         modelContextInvalid: '上下文窗口必须是正数，例如 131072、256K 或 1M。',
+        modelContextExceeded: '上下文窗口超过该模型已声明的最大档位。',
         save: '保存',
         saving: '保存中…',
         saved: '配置已保存。',
@@ -113,7 +114,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         removeModel: 'Delete model',
         fast: 'Fast',
         contextWindow: 'Context window',
-        contextWindowPlaceholder: 'Unknown',
+        contextWindowPlaceholder: 'Uses the provider default',
         maxTokens: 'Max output tokens',
         maxTokensPlaceholder: 'Uses the provider default',
         maxTokensHint: 'The SDK does not expose max output tokens; the server default applies.',
@@ -128,6 +129,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         modelIdRequired: 'Model ID is required.',
         modelIdDuplicate: 'Model ID must be unique.',
         modelContextInvalid: 'Context window must be a positive count, like 131072, 256K, or 1M.',
+        modelContextExceeded: 'Context budget exceeds the largest declared window.',
         save: 'Save',
         saving: 'Saving…',
         saved: 'Settings saved.',
@@ -162,8 +164,10 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       return String(value);
     }
 
-    function initialCapacity(id) {
+    function initialCapacity(id, ids = []) {
       const params = id.split('@')[1]?.split(',') ?? [];
+      const declared = ids.filter(value => value.startsWith(id.trim().split('@')[0] + '@context=')).map(value => parseCapacity(value.split('=')[1])).filter(Number.isFinite).sort((a,b) => a-b);
+      if (declared.length) return formatCapacity(declared.at(-1));
       const text = params.find(p => p.split('=')[0].trim() === 'context')?.split('=')[1];
       const value = text === undefined ? undefined : parseCapacity(text);
       return Number.isSafeInteger(value) && value > 0 ? formatCapacity(value) : '';
@@ -224,19 +228,21 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
     }
     const modalities = row => Array.isArray(row.inputModalities) && row.inputModalities.length > 0 ? row.inputModalities : ['text', 'image'];
 
-    function capacityFailure(row, index) {
+    function capacityFailure(row, index, ids = []) {
       if (row.capacity.trim().length === 0) return undefined;
       const parsed = parseCapacity(row.capacity);
+      const limits = ids.filter(id => id.startsWith(row.id.trim().split('@')[0] + '@context=')).map(id => parseCapacity(id.split('=')[1])).filter(Number.isFinite);
+      if (limits.length && parsed > Math.max(...limits)) return ['modelContextExceeded', index];
       return parsed === undefined || Number.isNaN(parsed) || parsed < 1 ? ['modelContextInvalid', index] : undefined;
     }
-    function modelFailure(rows) {
+    function modelFailure(rows, ids) {
       const seen = new Set();
       for (let index = 0; index < rows.length; index++) {
         const id = rows[index].id.trim();
         if (id.length === 0) return ['modelIdRequired', index];
         if (seen.has(id)) return ['modelIdDuplicate', index];
         seen.add(id);
-        const capacity = capacityFailure(rows[index], index);
+        const capacity = capacityFailure(rows[index], index, ids);
         if (capacity !== undefined) return capacity;
       }
       return undefined;
@@ -390,7 +396,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
       const rows = current.models;
       const ref = profile.apiKeyEnv || 'CURSOR_API_KEY';
       const disabled = busy || !state.writable || state.status !== 'ready';
-      const failureInfo = modelFailure(rows);
+      const failureInfo = modelFailure(rows, fastModels);
 
       const commit = patch => setDraft({ ...current, ...patch });
       const update = (index, patch) => commit({ models: rows.map((row, at) => at === index ? { ...row, ...patch } : row) });
@@ -425,8 +431,8 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
             return;
           }
           const configured = new Set(rows.map(row => row.id.trim()).filter(id => id.length > 0));
-          const stored = result.value.filter(model => configured.has(model.id)).map(model => model.id);
-          setPicker({ models: result.value.filter(model => !/^[^@]+@fast=(true|false)$/.test(model.id)), query: '', checked: stored.length > 0 ? stored : result.value.filter(model => !/^[^@]+@fast=(true|false)$/.test(model.id)).map(model => model.id) });
+          const stored = result.value.filter(model => !model.id.includes('@') && configured.has(model.id)).map(model => model.id);
+          setPicker({ models: result.value.filter(model => !model.id.includes('@')), query: '', checked: stored.length > 0 ? stored : result.value.filter(model => !model.id.includes('@')).map(model => model.id) });
         } catch {
           setNotice({ tone: 'error', text: t('fail') + ' [CLIENT_TRANSPORT_FAILED]' });
         } finally {
@@ -480,7 +486,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         const keep = rows.filter(row => picker.checked.includes(row.id.trim()));
         const added = picker.models
           .filter(model => picker.checked.includes(model.id) && !keep.some(row => row.id.trim() === model.id))
-          .map(model => ({ id: model.id, name: model.name ?? '', capacity: initialCapacity(model.id) }));
+          .map(model => ({ id: model.id, name: model.name ?? '', capacity: initialCapacity(model.id, fastModels) }));
         setDraft({ ...current, models: [...keep, ...added], inheritModels: false });
         setExpanded([]);
         setPicker(null);
@@ -491,7 +497,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         const position = String(index + 1);
         const selected = modalities(row);
         const lockedType = selected.length === 1 ? selected[0] : undefined;
-        const capacity = capacityFailure(row, index);
+        const capacity = capacityFailure(row, index, fastModels);
         const fastSupported = supportsFast(fastModels, row.id);
         const captionId = 'dcp-input-types-' + index;
         return h('div', { className: 'dcp-modelEntry', key: index },
@@ -499,7 +505,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
             h('input', {
               className: 'dcp-input', type: 'text', value: row.id, placeholder: t('modelId'),
               'aria-label': t('modelId') + ' ' + position, disabled, onChange: event => update(index, { id: event.target.value }),
-              onBlur: () => { if (row.capacityPending && row.id.trim()) update(index, { capacity: initialCapacity(row.id), capacityPending: false }); },
+              onBlur: () => { if (row.capacityPending && row.id.trim()) update(index, { capacity: initialCapacity(row.id, fastModels), capacityPending: false }); },
             }),
             h('input', {
               className: 'dcp-input', type: 'text', value: row.name, placeholder: t('modelNamePlaceholder'),

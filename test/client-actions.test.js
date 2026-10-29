@@ -10,7 +10,7 @@ test('draft credential reaches catalog remote and error display is sanitized', a
   const snapshot={status:'ready',writable:true,value:{},revision:1};
   const scope={getSnapshot:()=>snapshot,subscribe:()=>()=>{}};
   const React={createElement:(type,props,...children)=>({type,props:props||{},children}),useSyncExternalStore:(_s,get)=>get(),useRef:()=>({current:null}),useEffect(){},useState(initial){const i=cursor++;if(!(i in values))values[i]=initial;return [values[i],v=>{values[i]=typeof v==='function'?v(values[i]):v;}];}};
-  const ctx={locale:{getLocale:()=>({active:'zh'}),register(){},bind:()=>k=>k,subscribe:()=>()=>{},getSnapshot:()=>({})},remote:{llm:{async discoverModels(ns,input){request={ns,input};if(success)return {ok:true,value:[{id:'mock',name:'Mock'},{id:'mock@fast=false'},{id:'mock@fast=true'}]};return {ok:false,error:{code:'llm/model-discovery-rejected',message:'Cursor authentication or account permission was rejected'}};}}},effect:fn=>fn(),inject:(_deps,fn)=>fn(ctx),configForms:{get:()=>scope,whileServed:(_ns,fn)=>fn()},slots:{inject:(_slot,fn)=>fn(),register:(_opts,fn)=>{renderer=fn;return ()=>{};}}};
+  const ctx={locale:{getLocale:()=>({active:'zh'}),register(){},bind:()=>k=>k,subscribe:()=>()=>{},getSnapshot:()=>({})},remote:{llm:{async discoverModels(ns,input){request={ns,input};if(success)return {ok:true,value:[{id:'mock',name:'Mock'},{id:'mock@fast=false'},{id:'mock@fast=true'},{id:'mock@context=250k'},{id:'mock@context=500k'}]};return {ok:false,error:{code:'llm/model-discovery-rejected',message:'Cursor authentication or account permission was rejected'}};}}},effect:fn=>fn(),inject:(_deps,fn)=>fn(ctx),configForms:{get:()=>scope,whileServed:(_ns,fn)=>fn()},slots:{inject:(_slot,fn)=>fn(),register:(_opts,fn)=>{renderer=fn;return ()=>{};}}};
   vm.runInNewContext(readFileSync('src/client.js','utf8'),{window:{__ModuleLoader__:{load:v=>{entry=v;}}}});
   entry.factory(()=>React).apply(ctx);
   const render=()=>{cursor=0;const el=renderer({view:'page',useRemoteAccess:()=>true});return el.type(el.props);};
@@ -30,6 +30,8 @@ test('draft credential reaches catalog remote and error display is sanitized', a
   success=true;
   await button('fetchModels').props.onClick();
   assert.ok(nodes(render()).some(n=>n.props.role==='dialog'));
+  assert.equal(nodes(render()).filter(n=>n.props.className==='dcp-candidateId').length,1);
+  assert.equal(nodes(render()).some(n=>n.children?.flat(Infinity).includes('mock@context=250k')),false);
   button('fetchAdopt').props.onClick();
   assert.equal(nodes(render()).filter(n=>String(n.props['aria-label']).startsWith('modelId ')).length,1);
   assert.equal(nodes(render()).some(n=>n.props.role==='dialog'),false);
@@ -65,6 +67,8 @@ test('draft credential reaches catalog remote and error display is sanitized', a
   assert.equal(nodes(render()).find(n=>n.props.type==='submit').props.disabled,true);
   assert.ok(nodes(render()).some(n=>n.props.role==='alert'));
   field('contextWindow 1').props.onChange({target:{value:'1M'}});
+  assert.equal(nodes(render()).find(n=>n.props.type==='submit').props.disabled,true);
+  field('contextWindow 1').props.onChange({target:{value:'350K'}});
   field('fast 1').props.onChange({target:{checked:true}});
   assert.equal(field('modelName 1').props.value,'My Grok Fast');
   field('fast 1').props.onChange({target:{checked:true}});
@@ -77,15 +81,19 @@ test('draft credential reaches catalog remote and error display is sanitized', a
   assert.equal(field('modelName 1').props.value,'Manual Fast');
   field('modelName 1').props.onChange({target:{value:'My Grok'}});
   button('addModel').props.onClick();
-  field('modelId 2').props.onChange({target:{value:'legacy-model@context=500k'}});
+  field('modelId 2').props.onChange({target:{value:'mock'}});
   field('modelId 2').props.onBlur();
   assert.equal(field('contextWindow 2').props.value,'500K');
+  field('contextWindow 2').props.onChange({target:{value:''}});
+  field('modelId 2').props.onChange({target:{value:'legacy-model@context=500k'}});
+  field('modelId 2').props.onBlur();
+  assert.equal(field('contextWindow 2').props.value,'');
   field('contextWindow 2').props.onChange({target:{value:''}});
   field('modelId 2').props.onChange({target:{value:'legacy-model'}});
   field('modelId 2').props.onBlur();
   assert.equal(field('contextWindow 2').props.value,'');
   await nodes(render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
-  assert.equal(saved[0].contextWindow,1000000);
+  assert.equal(saved[0].contextWindow,350000);
   assert.equal(saved[1].contextWindow,undefined);
   assert.equal(saved[0].name,'My Grok');
   assert.equal(saved[1].id,'legacy-model');

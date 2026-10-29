@@ -60,7 +60,7 @@ test('SDK object-valued parameter definitions and variants map without invented 
   assert.deepEqual(modelSelection('mock@reasoning_effort=high', catalog), { id: 'mock', params: [{ id: 'reasoning_effort', value: 'high' }] });
   assert.throws(() => modelSelection('mock', catalog, 'low'), { code: 'INVALID_PARAMETER' });
   const { adapter } = fixture();
-  assert.equal((await adapter.listModels()).length, 2);
+  assert.equal((await adapter.listModels()).length, 1);
   const info = await adapter.resolveModel('cursor', 'mock');
   assert.equal(info.context, undefined);
   assert.deepEqual(info.reasoning.efforts, [{ id: 'high', name: 'high' }]);

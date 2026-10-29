@@ -7,7 +7,8 @@
 - [Host 入口](src/index.js)：配置 schema、凭据解析及供应商注册。
 - [Fast 开关测试](test/fast.test.js)：默认标准速度、目录能力校验、配置与 SDK 参数映射。
 - [Client 面板](src/client.js)：官方配置插槽、主题变量、凭据写入与模型目录；Fast 能力内存缓存 24 小时，手动获取强制刷新，成功目录撤销能力后关闭 Fast 并撤回自动名称后缀。
-- [面板行为测试](test/client-actions.test.js)：凭据草稿、Fast 缓存与撤销、容量校验及失焦大写；新增模型只初始化一次 context 默认值，已有空值不回填。
+- [面板行为测试](test/client-actions.test.js)：凭据草稿、Fast 缓存与撤销、容量校验及失焦大写；仅展示基础模型，新模型初始化最大 context，手填预算向上匹配 SDK 档位。
+- [上下文映射测试](test/context.test.js)：DSH 手填预算、SDK 向上匹配、空值最大档位和无 context 行为。
 - [适配器](src/adapter.js)：模型目录、DSH 流映射和原生工具续接；不再解析正文工具标签或要求模型纠正。
 - [原生工具桥](src/native.js)：保留工具原名、校验结果批次并回传有来源的 runtime-context 快照；回调不执行宿主工具。
 - [桥接测试](test/native.test.js)：真实宿主流记录器、连续工具续接、快照替换、审批拒绝、卸载和 send 阻塞路径。

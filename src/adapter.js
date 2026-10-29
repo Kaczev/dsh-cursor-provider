@@ -24,7 +24,12 @@ function reasoningParameter(model) {
 export function sdkCatalog(models) {
   return models.map(m => ({ ...m, parameters: parameterDefinitions(m).map(p => ({ ...p, values: p.values.map(v => v.value) })) }));
 }
-export function modelSelection(value, models, effort, fast) {
+export function contextChoices(model) {
+  return (parameterDefinitions(model).find(p => p.id === 'context')?.values ?? [])
+    .map(({value}) => { const m = /^(\d+(?:\.\d+)?)([km])?$/i.exec(value); return {value, tokens: m ? Number(m[1]) * ({k:1000,m:1000000}[m[2]?.toLowerCase()] ?? 1) : NaN}; })
+    .filter(p => Number.isSafeInteger(p.tokens) && p.tokens > 0).sort((a,b) => a.tokens-b.tokens);
+}
+export function modelSelection(value, models, effort, fast, budget) {
   const resolved = resolveVariant(value, sdkCatalog(models));
   const params = { ...resolved.parameters };
   const fastParameter = parameterDefinitions(models.find(m => m.id === resolved.id)).find(p => p.id === 'fast');
@@ -32,6 +37,13 @@ export function modelSelection(value, models, effort, fast) {
   if (fast === true && !switchable) throw new ProviderError('INVALID_PARAMETER', 'Model declares no switchable Fast parameter');
   if (switchable) params.fast = String(fast ?? (params.fast === 'true'));
 
+  const entry = models.find(m => m.id === resolved.id);
+  const choices = contextChoices(entry);
+  if (choices.length && (budget !== undefined || params.context === undefined)) {
+    const choice = budget === undefined ? choices.at(-1) : choices.find(p => p.tokens >= budget);
+    if (!choice) throw new ProviderError('INVALID_PARAMETER', 'Context budget exceeds the largest declared Cursor context window');
+    params.context = choice.value;
+  }
   if (effort !== undefined) {
     const parameter = reasoningParameter(models.find(m => m.id === resolved.id));
     if (!parameter) throw new ProviderError('INVALID_PARAMETER', 'Model declares no reasoning effort parameter');
@@ -53,16 +65,10 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
     async account(signal) { return transport.catalog(await credential(), signal); }
     async listModels() {
       const models = await this.account();
-      const available = models.flatMap(m => {
-        const base = { provider: 'cursor', id: m.id, name: m.displayName };
-        const variants = (m.variants ?? []).filter(v => v.params.length).map(v => ({
-          ...base, id: m.id + '@' + [...v.params].sort((a,b) => a.id.localeCompare(b.id)).map(p => `${p.id}=${p.value}`).join(','), name: `${m.displayName} · ${v.displayName}`,
-        }));
-        return [base, ...variants];
-      });
+      const available = models.map(m => ({ provider: 'cursor', id: m.id, name: m.displayName }));
       const selected = profile().models;
       if (selected === undefined) return available;
-      return selected.map(value => {
+      return selected.filter(value => !(typeof value === 'string' ? value : value.id).includes('@')).map(value => {
         const item = typeof value === 'string' ? { id: value } : value;
         modelSelection(item.id, models);
         const known = available.find(m => m.id === item.id);
@@ -75,7 +81,9 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
       const entry = catalog.find(m => m.id === selection.id);
       const efforts = reasoningParameter(entry)?.values;
       const custom = profile().models?.find(value => typeof value === 'object' && value.id === model);
-      const contextWindow = custom ? custom.contextWindow : profile().contextWindow;
+      const budget = custom ? custom.contextWindow : profile().contextWindow;
+      modelSelection(model, catalog, undefined, custom?.fast ?? false, budget);
+      const contextWindow = budget ?? (selection.params.find(p => p.id === 'context') ? contextChoices(entry).find(p => p.value === selection.params.find(p => p.id === 'context').value)?.tokens : undefined);
       return { provider, id: model, name: custom?.name || entry.displayName,
         ...(custom?.inputModalities ? { inputModalities: [...custom.inputModalities] } : {}),
         ...(contextWindow ? { context: { contextWindow } } : {}),
@@ -120,7 +128,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const apiKey = await credential();
         const catalog = await transport.catalog(apiKey, options.signal);
         const configured = profile().models?.find(value => typeof value === 'object' && value.id === options.model);
-        const model = modelSelection(options.model, catalog, options.reasoningEffort, configured?.fast ?? false);
+        const model = modelSelection(options.model, catalog, options.reasoningEffort, configured?.fast ?? false, configured ? configured.contextWindow : profile().contextWindow);
         const imageNote = projected.images.length ? '\nImages attached to this request are numbered from 1 in occurrence order. Each JSON image block sdkImage value identifies its attached image; respect its owning message role and position.\n' : '\n';
         const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ system: options.system, messages: projected.messages, toolHistory: options.toolHistory });
         const previous = [...options.messages].reverse().find(message => message.role === 'assistant');
