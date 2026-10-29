@@ -62,4 +62,4 @@ export const stableHistory = messages => messages.filter(message => !isRuntimeCo
 
 export const historyIdentity = messages => createHash('sha256').update(JSON.stringify(messages.map(({ role, content, toolCallId, isError }) => ({ role, content, toolCallId, isError })))).digest('hex');
 
-export const bridgeIdentity = ({ apiKey, model, tools, sessionId, system }) => createHash('sha256').update(JSON.stringify({ apiKey, model, tools, sessionId, system })).digest('hex');
+export const bridgeIdentity = ({ apiKey, model, tools, sessionId, system, purpose, toolHistory }) => createHash('sha256').update(JSON.stringify({ apiKey, model, tools, sessionId, system, purpose, toolHistory })).digest('hex');

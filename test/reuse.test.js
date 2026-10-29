@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {CursorTransport} from '../src/transport.js';
+const u=text=>({role:'user',content:[{type:'text',text}]});
+const a={role:'assistant',content:[{type:'text',text:'ok'}]};
+const base={apiKey:'offline',model:{id:'grok-4.7',params:[{id:'fast',value:'false'}]},sessionId:'s',system:'fixed',tools:[],prompt:'full history',messages:[u('one')]};
+function fixture(){const calls={create:0,dispose:0,prompts:[]};const sdk={JsonlLocalAgentStore:class{},Agent:{async create(){calls.create++;return {async send(prompt){calls.prompts.push(prompt);return {status:'finished',async *stream(){yield {type:'assistant',message:{content:a.content}}},async wait(){return {status:'finished'}}}},async [Symbol.asyncDispose](){calls.dispose++}}}}};return {calls,t:new CursorTransport({loadSDK:async()=>sdk})}}
+async function run(t,r){for await(const e of t.stream(r))assert.notEqual(e.type,'failure')}
+test('append-only turn reuses agent and sends only suffix, no no-tool reprompt',async()=>{const {t,calls}=fixture();try{await run(t,base);await run(t,{...base,messages:[...base.messages,a,u('two')]});assert.equal(calls.create,1);assert.equal(calls.prompts.length,2);assert.ok(calls.prompts[1].includes('two'));assert.ok(!calls.prompts[1].includes('one'));assert.equal(calls.dispose,0)}finally{await t.close()}assert.equal(calls.dispose,1)});
+for(const change of ['rewrite','compression','key','model','system','tools','snapshot','purpose'])test('rebuild on '+change,async()=>{const {t,calls}=fixture();try{await run(t,base);let r={...base,messages:[...base.messages,a,u('two')]};if(change==='rewrite')r.messages[0]=u('changed');if(change==='compression')r.messages=[u('summary')];if(change==='key')r.apiKey='other';if(change==='model')r.model={id:'other'};if(change==='system')r.system='changed';if(change==='tools')r.tools=[{name:'x',parameters:{type:'object'}}];if(change==='snapshot')r.messages[0]={...u('new snapshot'),source:{kind:'runtime-context',form:'snapshot'}};if(change==='purpose')r.purpose='session-title';await run(t,r);assert.equal(calls.create,2)}finally{await t.close()}});

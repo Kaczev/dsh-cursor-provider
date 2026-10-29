@@ -13,6 +13,7 @@
 - [桥接测试](test/native.test.js)：真实宿主流记录器、连续工具续接、快照替换、审批拒绝、卸载和 send 阻塞路径。
 - [命名测试](test/native-names.test.js)：语义名、含点名称、重排及重复名拒绝。
 - [图片消息](src/images.js)：附件校验读取、SDK 图片序列化与历史出现位置。
-- [SDK transport](src/transport.js)：官方 SDK 生命周期。
+- [SDK transport](src/transport.js)：严格追加历史且身份一致时复用 agent，只发送新增用户消息；改写或配置变化重建，图片路径保守重建；空闲上限 8 个、30 分钟回收。
+- [复用测试](test/reuse.test.js)：追加增量、身份隔离、历史改写重建及无工具响应不自动追问。
 - [协议与状态](src/provider.js)：工具块解析、模型变体及隔离辅助逻辑。
 - [构建](scripts/build.mjs)：语法检查和模块复制；测试位于 test/。

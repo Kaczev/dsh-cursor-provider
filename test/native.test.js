@@ -112,7 +112,7 @@ for (const duringSend of [false, true]) test(`native handoff and callback result
     const messages = [...options.messages, { role: 'assistant', source: { replayState: first.at(-1).replayState }, content: [call] }, { role: 'tool', toolCallId: call.id, content: [{ type: 'text', text: 'value=123' }] }];
     const second = await collect(adapter.stream({ ...options, messages }));
     assert.equal(second.at(-1).reason.kind, 'stop');
-    assert.equal(calls.sent, 1); assert.equal(calls.disposed, 1);
+    assert.equal(calls.sent, 1); assert.equal(calls.disposed, 0);
     assert.deepEqual(calls.result, { content: [{ type: 'text', text: 'value=123' }], isError: false });
   } finally { await transport.close(); }
 });

@@ -1,6 +1,6 @@
 {
   "name": "dsh-cursor-provider",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Kaczev/dsh-cursor-provider.git" },
   "homepage": "https://github.com/Kaczev/dsh-cursor-provider#readme",

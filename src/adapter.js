@@ -128,7 +128,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const prompt = projected.images.length ? { text, images: projected.images } : text;
         const record = {}; attempts.push(record);
         const nativeMessages = projected.messages.map(message => message.role === 'tool' ? { ...message, content: message.content.map(block => block.type === 'image' && block.sdkImage ? { ...block, sdkData: projected.images[block.sdkImage - 1] } : block) } : message);
-        for await (const event of transport.stream({ apiKey, model, prompt, signal: options.signal, tools: options.tools ?? [], validate, continuation, messages: nativeMessages, sessionId: options.sessionId, system: options.system })) {
+        for await (const event of transport.stream({ apiKey, model, prompt, signal: options.signal, tools: options.tools ?? [], validate, continuation, messages: nativeMessages, sessionId: options.sessionId, purpose: options.purpose, toolHistory: options.toolHistory, system: options.system })) {
           if (['text', 'reasoning', 'tool-call'].includes(event.type)) yield* block(event);
           else if (event.type === 'usage') usage.push(event.billing);
           else if (event.type === 'diagnostic') record.upstream = event.summary;

@@ -9,7 +9,7 @@ export const ATTRIBUTION_NOTICE = 'Cursor SDK 1.0.40 has no verified public upst
 
 /** Public SDK only. Pending callbacks hand off to the normal DSH tool pipeline. */
 export class CursorTransport {
-  #active = new Set(); #closed = false; #catalogs = new Map(); #continuations = new Map();
+  #active = new Set(); #closed = false; #catalogs = new Map(); #continuations = new Map(); #idle = new Map();
   constructor({ loadSDK = () => import('@cursor/sdk'), timeoutMs = 1_800_000, catalogTTL = 300_000, now = Date.now } = {}) {
     this.loadSDK = loadSDK; this.timeoutMs = timeoutMs; this.catalogTTL = catalogTTL; this.now = now;
   }
@@ -58,17 +58,33 @@ export class CursorTransport {
       this.#continuations.delete(continuation);
       state.bridge.resume(messages, state.delivered);
     } else {
-      state = this.#start(request);
+      const cached = request.sessionId && !request.purpose ? this.#idle.get(request.sessionId) : undefined;
+      if (cached) {
+        this.#idle.delete(request.sessionId); clearTimeout(cached.idleTimer);
+        const prefix = messages.slice(0, cached.committedLength);
+        const suffix = messages.slice(cached.committedLength);
+        if (cached.identity === bridgeIdentity(request) && historyIdentity(prefix) === cached.committed && suffix.length && suffix.every(m => m.role === 'user') && !JSON.stringify(messages).includes('"type":"image"')) {
+          state = cached; state.queue = []; state.token = undefined;
+          state.done = this.#produce(state, { ...request, prompt: 'Continue the existing conversation. Only these new messages are appended, in role order:\n' + JSON.stringify(suffix.map(({role,content})=>({role,content}))) });
+        } else await cached.dispose();
+      }
+      state ??= this.#start(request);
     }
     state.busy = true;
     const abort = () => state.controller.abort();
     signal?.addEventListener('abort', abort, { once: true });
-    let handedOff = false;
+    let handedOff = false, completed = false;
+    const content = [];
     try {
       for (;;) {
         const event = await bounded(() => state.next(), { signal: state.controller.signal, timeoutMs: this.timeoutMs });
         if (event.type === 'failure') throw event.error;
-        if (event.type === 'done') break;
+        if (event.type === 'done') { completed = state.success === true; break; }
+        if (['text','reasoning'].includes(event.type) && event.text) {
+          const last = content.at(-1);
+          if (last?.type === event.type) last.text += event.text;
+          else content.push({type:event.type,text:event.text});
+        } else if (event.type === 'tool-call') content.push({...event});
         yield event;
         if (event.type === 'tool-call') {
           // Drain only requests already queued in this native batch. A later
@@ -94,10 +110,22 @@ export class CursorTransport {
     } finally {
       state.busy = false;
       if (handedOff) state.detachSignal = () => signal?.removeEventListener('abort', abort);
-      else {
+      else if (completed && !this.#closed && request.sessionId && !request.purpose && content.length && !state.controller.signal.aborted) {
+        signal?.removeEventListener('abort', abort);
+        await state.done;
+        const committed = [...messages, {role:'assistant',content}];
+        state.committedLength = committed.length; state.committed = historyIdentity(committed);
+        const old = this.#idle.get(request.sessionId);
+        if (old && old !== state) await old.dispose();
+        this.#idle.set(request.sessionId, state);
+        state.idleTimer = setTimeout(() => { if (this.#idle.get(request.sessionId) === state) this.#idle.delete(request.sessionId); void state.dispose(); }, this.timeoutMs);
+        state.idleTimer.unref?.();
+        while (this.#idle.size > 8) { const [key, victim] = this.#idle.entries().next().value; this.#idle.delete(key); await victim.dispose(); }
+      } else {
         signal?.removeEventListener('abort', abort);
         state.controller.abort();
         await state.done;
+        await state.dispose();
       }
     }
   }
@@ -116,10 +144,18 @@ export class CursorTransport {
     // The lifetime includes approval/result waiting, so abandoned continuations
     // cannot retain an SDK agent indefinitely.
     const timer = setTimeout(() => { state.timedOut = true; controller.abort(); }, this.timeoutMs);
+    state.dispose = async () => {
+      if (state.disposing) return state.disposing;
+      state.disposing = (async () => {
+        clearTimeout(timer); clearTimeout(state.idleTimer); state.bridge.close();
+        try { if (state.agent) await bounded(() => state.agent[Symbol.asyncDispose](), {timeoutMs:5000}); } catch {}
+        finally { if(state.directory) await rm(state.directory,{recursive:true,force:true}); this.#active.delete(state); }
+      })(); return state.disposing;
+    };
     state.done = this.#produce(state, { apiKey, model, prompt }).finally(() => {
       clearTimeout(timer);
       state.detachSignal?.();
-      this.#active.delete(state);
+      if (!state.success) this.#active.delete(state);
       if (state.token) this.#continuations.delete(state.token);
     });
     return state;
@@ -127,11 +163,14 @@ export class CursorTransport {
   async #produce(state, { apiKey, model, prompt }) {
     const { controller, bridge, push } = state;
     const step = () => ({ signal: controller.signal, timeoutMs: this.timeoutMs });
-    let agent, run, directory;
+    let agent = state.agent, run, directory = state.directory;
+    state.success = false;
     const counts = {};
+    const runTimer = setTimeout(() => { state.timedOut = true; controller.abort(); }, this.timeoutMs);
     let reportedUsage = false, terminalReported = false;
     try {
-      directory = await mkdtemp(join(tmpdir(), 'dsh-cursor-'));
+      if (!agent) {
+      directory = await mkdtemp(join(tmpdir(), 'dsh-cursor-')); state.directory = directory;
       const sdk = await bounded(this.loadSDK, step());
       agent = await bounded(() => sdk.Agent.create({
         apiKey, model, tools: bridge.tools.length ? ['mcp'] : [], mcpServers: {},
@@ -139,6 +178,8 @@ export class CursorTransport {
       }), { ...step(), lateCleanup: async late => {
         try { await late[Symbol.asyncDispose](); } finally { await rm(directory, { recursive: true, force: true }); }
       } });
+      state.agent = agent;
+      }
       run = await bounded(() => agent.send(prompt), { ...step(), lateCleanup: async late => {
         if (late.supports('cancel')) await late.cancel();
       } });
@@ -168,17 +209,18 @@ export class CursorTransport {
       push({ type: 'diagnostic', summary: { status: ['finished', 'cancelled', 'error'].includes(result.status) ? result.status : 'unknown', eventCounts: counts } });
       if (!reportedUsage && result.usage) push({ type: 'usage', billing: result.usage });
       if (result.status !== 'finished') throw new ProviderError(result.status === 'cancelled' ? 'ABORTED' : 'SDK_RUN_FAILED', 'Cursor run did not finish successfully');
+      state.success = true;
     } catch (error) {
       if (!terminalReported) push({ type: 'diagnostic', summary: { status: controller.signal.aborted ? 'cancelled' : 'error', eventCounts: counts } });
       push({ type: 'failure', error: state.timedOut ? new ProviderError('TIMEOUT', 'Cursor call timed out') : error });
     } finally {
-      bridge.close();
-      try {
-        if (run?.supports('cancel') && run.status === 'running') await bounded(() => run.cancel(), { timeoutMs: 5_000 });
-      } catch { /* Still dispose the agent and directory. */ }
-      try { if (agent) await bounded(() => agent[Symbol.asyncDispose](), { timeoutMs: 5_000 }); }
-      catch { /* SDK details can contain secrets; cleanup is best effort. */ }
-      finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+      clearTimeout(runTimer);
+      state.detachSignal?.();
+      if (state.token) this.#continuations.delete(state.token);
+      if (!state.success) {
+        try { if(run?.supports?.('cancel') && run.status === 'running') await bounded(()=>run.cancel(),{timeoutMs:5000}); } catch {}
+        await state.dispose();
+      }
       push({ type: 'done' });
     }
   }
@@ -186,8 +228,9 @@ export class CursorTransport {
     this.#closed = true;
     this.#catalogs.clear();
     const active = [...this.#active];
+    this.#idle.clear();
     for (const state of active) { state.bridge.close(); state.controller.abort(); }
-    await Promise.all(active.map(state => state.done));
+    await Promise.all(active.map(async state => { await state.done; await state.dispose(); }));
     this.#continuations.clear();
   }
 }
