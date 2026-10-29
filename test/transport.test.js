@@ -76,9 +76,9 @@ test('isolated text-only SDK options, terminal wait, usage and disposal', async 
   assert.deepEqual(calls.options.local.customTools, {});
   assert.equal(calls.disposed, 1); assert.equal(calls.waited, true);
   assert.equal(calls.options.local.enableAgentRetries, false);
-  const usage = out.find(e => e.type === 'usage');
-  assert.equal(usage.billing.inputTokens, 22);
-  assert.equal(usage.contextInputTokens, 12);
+  const usage = out.filter(e => e.type === 'usage');
+  assert.equal(usage.reduce((sum, event) => sum + event.billing.inputTokens, 0), 22);
+  assert.equal(usage.at(-1).contextInputTokens, 12);
   assert.deepEqual(out.find(e => e.type === 'diagnostic').summary, { status: 'finished', eventCounts: { assistant: 1, usage: 2 } });
 });
 
