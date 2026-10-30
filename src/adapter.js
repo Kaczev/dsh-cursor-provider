@@ -58,6 +58,8 @@ export function modelSelection(value, models, effort, fast, budget) {
   };
 }
 
+function cursorName(name) { return /^Cursor(?:\s|$)/i.test(name) ? name : `Cursor ${name}`; }
+
 /** Dependency-injected to exercise the exact DSH stream mapping without a live profile. */
 export function defineAdapter({ LlmAdapter, transport, profile, credential, validate, attachments = () => undefined, offloadedImageText }) {
   return class CursorAdapter extends LlmAdapter {
@@ -65,7 +67,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
     async account(signal) { return transport.catalog(await credential(), signal); }
     async listModels() {
       const models = await this.account();
-      const available = models.map(m => ({ provider: 'cursor', id: m.id, name: m.displayName }));
+      const available = models.map(m => ({ provider: 'cursor', id: m.id, name: cursorName(m.displayName || m.id) }));
       const selected = profile().models;
       if (selected === undefined) return available;
       return selected.filter(value => !(typeof value === 'string' ? value : value.id).includes('@')).map(value => {
@@ -84,7 +86,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
       const budget = custom ? custom.contextWindow : profile().contextWindow;
       modelSelection(model, catalog, undefined, custom?.fast ?? false, budget);
       const contextWindow = budget ?? (selection.params.find(p => p.id === 'context') ? contextChoices(entry).find(p => p.value === selection.params.find(p => p.id === 'context').value)?.tokens : undefined);
-      return { provider, id: model, name: custom?.name || entry.displayName,
+      return { provider, id: model, name: custom?.name || cursorName(entry.displayName || model),
         ...(custom?.inputModalities ? { inputModalities: [...custom.inputModalities] } : {}),
         ...(contextWindow ? { context: { contextWindow } } : {}),
         ...(efforts?.length ? { reasoning: { efforts: efforts.map(v => ({ id: v.value, name: v.displayName ?? v.value })) } } : {}),
@@ -130,7 +132,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const configured = profile().models?.find(value => typeof value === 'object' && value.id === options.model);
         const model = modelSelection(options.model, catalog, options.reasoningEffort, configured?.fast ?? false, configured ? configured.contextWindow : profile().contextWindow);
         const imageNote = projected.images.length ? '\nImages attached to this request are numbered from 1 in occurrence order. Each JSON image block sdkImage value identifies its attached image; respect its owning message role and position.\n' : '\n';
-        const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ messages: projected.messages, toolHistory: options.toolHistory });
+        const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ ...(!transport.replaceSystemPrompt ? { system: options.system } : {}), messages: projected.messages, toolHistory: options.toolHistory });
         const previous = [...options.messages].reverse().find(message => message.role === 'assistant');
         const continuation = previous?.source?.replayState?.response?.protocol === 'cursor-native-v1' ? previous.source.replayState.response.continuation : undefined;
         const prompt = projected.images.length ? { text, images: projected.images } : text;

@@ -7,7 +7,7 @@ const collect = async source => { const out = []; for await (const event of sour
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] });
 function fixture(rejectSend = false) {
   const calls = { options: [], prompts: [], disposed: 0 };
-  const transport = new CursorTransport({ loadSDK: async () => ({
+  const transport = new CursorTransport({ replaceSystemPrompt: true, loadSDK: async () => ({
     JsonlLocalAgentStore: class {},
     Agent: { async create(options) {
       calls.options.push(options);
@@ -65,7 +65,7 @@ test('system replacement denial fails closed, sanitized, without retrying defaul
 
 test('server-side system prompt gate returns an explicit sanitized failure', async () => {
   let created = 0;
-  const transport = new CursorTransport({ loadSDK: async () => ({ JsonlLocalAgentStore: class {}, Agent: { async create() {
+  const transport = new CursorTransport({ replaceSystemPrompt: true, loadSDK: async () => ({ JsonlLocalAgentStore: class {}, Agent: { async create() {
     created++;
     return { async send() { return { async *stream() {}, async wait() { return { status: 'error', error: { message: 'InvalidArgument: --system-prompt access denied synthetic-secret' } }; } }; }, async [Symbol.asyncDispose]() {} };
   } } }) });

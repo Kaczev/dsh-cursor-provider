@@ -8,6 +8,7 @@
 .capacities{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 28px 28px;gap:10px;margin-bottom:18px}.capacities label:nth-child(2){grid-column:2/-1}.head{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 28px 28px}.body{padding:18px 0 7px}.capacities label{display:grid;gap:8px;color:#bbb}button:disabled{opacity:.4;cursor:default}
 </style>
 <main>
+<section id="model-label-reference" aria-label="模型选择器默认名称"><h3>获取目录后 · 添加模型名称</h3><button onclick="const n=document.getElementById('adopt-name');n.value=/^Cursor(?:\s|$)/i.test(n.value)?n.value:'Cursor '+n.value">确认添加所选模型（离线）</button><input id="adopt-name" aria-label="新增模型名称" value="Grok 4.7"><select aria-label="选择模型" style="font:inherit;background:#333537;color:#eee;padding:10px;border-radius:9px"><option>Cursor Grok 4.7</option><option>Cursor Claude Opus</option><option>我的自定义模型 Fast</option></select><p class="muted">Cursor SDK agent 接入，非原始模型 API。仅默认名称添加 Cursor 前缀；明确自定义名称保留，模型 ID 不变。此处是离线名称示例，不连接后端。</p></section>
 <h2>Cursor 配置</h2>
 <p class="muted">0.2.1 方案预览 · 以下为离线示例，能力状态不是账号目录数据。不连接 Cursor，不保存实际配置。</p>
 <label>API 密钥<input type="password" disabled placeholder="留空保留已有密钥" style="margin:10px 0 20px"></label>

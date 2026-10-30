@@ -486,7 +486,10 @@ window.__ModuleLoader__.load({ id: 'dsh-cursor-provider', factory(require) {
         const keep = rows.filter(row => picker.checked.includes(row.id.trim()));
         const added = picker.models
           .filter(model => picker.checked.includes(model.id) && !keep.some(row => row.id.trim() === model.id))
-          .map(model => ({ id: model.id, name: model.name ?? '', capacity: initialCapacity(model.id, fastModels) }));
+          .map(model => {
+            const name = model.name?.trim() || model.id;
+            return { id: model.id, name: /^Cursor(?:\s|$)/i.test(name) ? name : `Cursor ${name}`, capacity: initialCapacity(model.id, fastModels) };
+          });
         setDraft({ ...current, models: [...keep, ...added], inheritModels: false });
         setExpanded([]);
         setPicker(null);

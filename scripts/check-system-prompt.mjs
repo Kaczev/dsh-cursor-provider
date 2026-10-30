@@ -8,7 +8,7 @@ const apiKey = process.env.CURSOR_API_KEY;
 if (!apiKey?.trim()) throw new Error('Set CURSOR_API_KEY in this process environment before running this paid smoke test.');
 const marker = `DSH_SYSTEM_${randomUUID()}`;
 const value = randomUUID();
-const transport = new CursorTransport({ timeoutMs: 120000, loadSDK: async () => {
+const transport = new CursorTransport({ replaceSystemPrompt: true, timeoutMs: 120000, loadSDK: async () => {
   const sdk = await import('@cursor/sdk');
   return { ...sdk, Agent: { async create(options) {
     const agent = await sdk.Agent.create(options);

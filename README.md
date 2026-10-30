@@ -1,6 +1,10 @@
 # Cursor SDK 供应商
 
-`dsh-cursor-provider` 为 DeepSeek Harness（DSH）接入 Cursor 官方 SDK，注册 `cursor` 模型供应商。当前版本为 **0.2.2**，使用 `@cursor/sdk` 1.0.40，采用 [MIT 许可](LICENSE)。
+`dsh-cursor-provider` 为 DeepSeek Harness（DSH）接入 Cursor 官方 SDK，注册 `cursor` 模型供应商。当前版本为 **0.2.3**，使用 `@cursor/sdk` 1.0.40，采用 [MIT 许可](LICENSE)。
+
+**这是 Cursor SDK agent 接入，不是普通的原始模型 API 接入。** 请求经过 Cursor 的 agent 运行时和服务端，仍受其内建系统提示词及账号权限约束，不能视为“纯净 Grok”或其他模型的直连 API。通过「获取可用模型」勾选并确认添加新模型时，插件会在名称前自动填入 `Cursor `（例如 `Cursor Grok 4.7`），模型 ID 不变；已有模型名称和之后手动修改的名称保留，已有 Cursor 前缀不会重复添加。
+
+DSH 的 system 和历史会作为对话数据交给 SDK，不能等同于替换 Cursor 系统提示词。工具通过结构化桥接交回 DSH 审批与执行，SDK 内建工具保持关闭。
 
 ## 安装与配置
 
@@ -53,9 +57,9 @@
 
 ## 系统提示词替换实验（未发布）
 
-当前工作区将非空的 DSH `system` 原样传入 SDK `systemPrompt`，不再把它放进用户消息 JSON。无 system 或仅含空白的辅助请求使用 `You are an AI assistant.`，同样显式替换 Cursor 默认提示词。工具仍通过 DSH 审批与执行，SDK 内建工具和环境设置导入保持关闭。
+完整替换实验默认关闭，普通插件调用不传 SDK `systemPrompt`。仅显式创建 `CursorTransport({ replaceSystemPrompt: true })` 时，非空 DSH `system` 才原样传入该参数，不再放进用户消息 JSON；实验模式的空 system 使用 `You are an AI assistant.`。实验失败不会自动切回普通模式。
 
-2026-10-30 使用临时凭据对 Grok 4.7 做了两次请求尝试。SDK 返回的错误同时包含系统提示词参数、`InvalidArgument` 和权限拒绝；请求未进入 DSH 工具交接阶段。当前账号尚不能使用这个服务端受限接口，插件不会退回 Cursor 默认提示词。版本仍为 0.2.2，未发布本次实验，也不声称已经获得“纯净 Grok”。
+2026-10-30 使用临时凭据对 Grok 4.7 做了两次请求尝试。SDK 返回的错误同时包含系统提示词参数、`InvalidArgument` 和权限拒绝；请求未进入 DSH 工具交接阶段。当前账号尚不能使用这个服务端受限接口，插件不会退回 Cursor 默认提示词。0.2.3 仅更新来源标识与接入说明，不把完整替换实验作为默认功能，也不声称已经获得“纯净 Grok”。
 
 手动验收入口为 `node scripts/check-system-prompt.mjs`，需要在测试进程中设置 `CURSOR_API_KEY`，会产生真实模型请求。脚本检查系统指令相对用户指令的优先级、结构化工具调用和 DSH 结果回传，不读取旧会话中的凭据。只有真实验收通过后才考虑升到 0.3.0。
 

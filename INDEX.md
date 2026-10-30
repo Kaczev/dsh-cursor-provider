@@ -15,6 +15,8 @@
 - [命名测试](test/native-names.test.js)：语义名、含点名称、重排及重复名拒绝。
 - [图片消息](src/images.js)：附件校验读取、SDK 图片序列化与历史出现位置。
 - [SDK transport](src/transport.js)：严格追加历史且身份一致时复用 agent，只发送新增用户消息；改写或配置变化重建，图片路径保守重建；空闲上限 8 个、30 分钟回收。
+- [目录添加名称测试](test/client-adopt-name.test.js)：获取目录、勾选添加、Cursor 前缀保存、既有名称保留及后续手动改名。
+- [名称来源标识测试](test/model-label.test.js)：默认 Cursor 前缀、不重复前缀、自定义名称保留及默认关闭受限替换。
 - [系统提示词测试](test/system-prompt.test.js)：SDK 完整替换、无 system 的最小替换、拒绝不降级及跨轮身份隔离。
 - [复用测试](test/reuse.test.js)：追加增量、身份隔离、历史改写重建及无工具响应不自动追问。
 - [协议与状态](src/provider.js)：工具块解析、模型变体及隔离辅助逻辑。

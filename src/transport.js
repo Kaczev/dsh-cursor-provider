@@ -10,7 +10,8 @@ export const ATTRIBUTION_NOTICE = 'Cursor SDK 1.0.40 has no verified public upst
 /** Public SDK only. Pending callbacks hand off to the normal DSH tool pipeline. */
 export class CursorTransport {
   #active = new Set(); #closed = false; #catalogs = new Map(); #continuations = new Map(); #idle = new Map();
-  constructor({ loadSDK = () => import('@cursor/sdk'), timeoutMs = 1_800_000, catalogTTL = 300_000, now = Date.now } = {}) {
+  constructor({ loadSDK = () => import('@cursor/sdk'), timeoutMs = 1_800_000, catalogTTL = 300_000, now = Date.now, replaceSystemPrompt = false } = {}) {
+    this.replaceSystemPrompt = replaceSystemPrompt;
     this.loadSDK = loadSDK; this.timeoutMs = timeoutMs; this.catalogTTL = catalogTTL; this.now = now;
   }
   async catalog(apiKey, signal, { refresh = false } = {}) {
@@ -174,7 +175,7 @@ export class CursorTransport {
       directory = await mkdtemp(join(tmpdir(), 'dsh-cursor-')); state.directory = directory;
       const sdk = await bounded(this.loadSDK, step());
       agent = await bounded(() => sdk.Agent.create({
-        apiKey, model, systemPrompt: system?.trim() ? system : 'You are an AI assistant.', tools: bridge.tools.length ? ['mcp'] : [], mcpServers: {},
+        apiKey, model, ...(this.replaceSystemPrompt ? { systemPrompt: system?.trim() ? system : 'You are an AI assistant.' } : {}), tools: bridge.tools.length ? ['mcp'] : [], mcpServers: {},
         local: { cwd: directory, settingSources: [], customTools: bridge.customTools, enableAgentRetries: false, store: new sdk.JsonlLocalAgentStore(join(directory, 'state')) },
       }), { ...step(), lateCleanup: async late => {
         try { await late[Symbol.asyncDispose](); } finally { await rm(directory, { recursive: true, force: true }); }
