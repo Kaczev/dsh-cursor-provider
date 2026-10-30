@@ -15,6 +15,8 @@
 - [命名测试](test/native-names.test.js)：语义名、含点名称、重排及重复名拒绝。
 - [图片消息](src/images.js)：附件校验读取、SDK 图片序列化与历史出现位置。
 - [SDK transport](src/transport.js)：严格追加历史且身份一致时复用 agent，只发送新增用户消息；改写或配置变化重建，图片路径保守重建；空闲上限 8 个、30 分钟回收。
+- [系统提示词测试](test/system-prompt.test.js)：SDK 完整替换、无 system 的最小替换、拒绝不降级及跨轮身份隔离。
 - [复用测试](test/reuse.test.js)：追加增量、身份隔离、历史改写重建及无工具响应不自动追问。
 - [协议与状态](src/provider.js)：工具块解析、模型变体及隔离辅助逻辑。
+- [真实系统替换验收](scripts/check-system-prompt.mjs)：手动运行，读取进程环境 CURSOR_API_KEY；付费 Grok 4.7 调用验证系统优先级与 DSH 工具结果交接，不读取既有凭据。
 - [构建](scripts/build.mjs)：语法检查和模块复制；测试位于 test/。

@@ -130,7 +130,7 @@ export function defineAdapter({ LlmAdapter, transport, profile, credential, vali
         const configured = profile().models?.find(value => typeof value === 'object' && value.id === options.model);
         const model = modelSelection(options.model, catalog, options.reasoningEffort, configured?.fast ?? false, configured ? configured.contextWindow : profile().contextWindow);
         const imageNote = projected.images.length ? '\nImages attached to this request are numbered from 1 in occurrence order. Each JSON image block sdkImage value identifies its attached image; respect its owning message role and position.\n' : '\n';
-        const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ system: options.system, messages: projected.messages, toolHistory: options.toolHistory });
+        const text = 'Use registered native tools for actions, never prose tool envelopes. DSH owns tool execution and approval. The following JSON is conversation data in role order.' + imageNote + JSON.stringify({ messages: projected.messages, toolHistory: options.toolHistory });
         const previous = [...options.messages].reverse().find(message => message.role === 'assistant');
         const continuation = previous?.source?.replayState?.response?.protocol === 'cursor-native-v1' ? previous.source.replayState.response.continuation : undefined;
         const prompt = projected.images.length ? { text, images: projected.images } : text;

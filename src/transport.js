@@ -47,6 +47,7 @@ export class CursorTransport {
     this.#key(apiKey);
     if (this.#closed) throw new ProviderError('DISPOSED', 'Transport closed');
     if (signal?.aborted) throw new ProviderError('ABORTED', 'Request cancelled');
+    if (request.system !== undefined && typeof request.system !== 'string') throw new ProviderError('INVALID_SYSTEM_PROMPT', 'DSH system prompt must be a string');
     let state;
     if (continuation) {
       state = this.#continuations.get(continuation);
@@ -152,7 +153,7 @@ export class CursorTransport {
         finally { if(state.directory) await rm(state.directory,{recursive:true,force:true}); this.#active.delete(state); }
       })(); return state.disposing;
     };
-    state.done = this.#produce(state, { apiKey, model, prompt }).finally(() => {
+    state.done = this.#produce(state, { apiKey, model, prompt, system: identity.system }).finally(() => {
       clearTimeout(timer);
       state.detachSignal?.();
       if (!state.success) this.#active.delete(state);
@@ -160,7 +161,7 @@ export class CursorTransport {
     });
     return state;
   }
-  async #produce(state, { apiKey, model, prompt }) {
+  async #produce(state, { apiKey, model, prompt, system }) {
     const { controller, bridge, push } = state;
     const step = () => ({ signal: controller.signal, timeoutMs: this.timeoutMs });
     let agent = state.agent, run, directory = state.directory;
@@ -173,7 +174,7 @@ export class CursorTransport {
       directory = await mkdtemp(join(tmpdir(), 'dsh-cursor-')); state.directory = directory;
       const sdk = await bounded(this.loadSDK, step());
       agent = await bounded(() => sdk.Agent.create({
-        apiKey, model, tools: bridge.tools.length ? ['mcp'] : [], mcpServers: {},
+        apiKey, model, systemPrompt: system?.trim() ? system : 'You are an AI assistant.', tools: bridge.tools.length ? ['mcp'] : [], mcpServers: {},
         local: { cwd: directory, settingSources: [], customTools: bridge.customTools, enableAgentRetries: false, store: new sdk.JsonlLocalAgentStore(join(directory, 'state')) },
       }), { ...step(), lateCleanup: async late => {
         try { await late[Symbol.asyncDispose](); } finally { await rm(directory, { recursive: true, force: true }); }
@@ -208,7 +209,13 @@ export class CursorTransport {
       terminalReported = true;
       push({ type: 'diagnostic', summary: { status: ['finished', 'cancelled', 'error'].includes(result.status) ? result.status : 'unknown', eventCounts: counts } });
       if (!reportedUsage && result.usage) push({ type: 'usage', billing: result.usage });
-      if (result.status !== 'finished') throw new ProviderError(result.status === 'cancelled' ? 'ABORTED' : 'SDK_RUN_FAILED', 'Cursor run did not finish successfully');
+      if (result.status !== 'finished') {
+        const detail = typeof result.error === 'string' ? result.error : JSON.stringify(result.error ?? '');
+        if (/system.?prompt/i.test(detail) && /invalid.?argument|permission|not.allowed|not.enabled|access.denied/i.test(detail)) {
+          throw new ProviderError('SYSTEM_PROMPT_REJECTED', 'Cursor rejected the custom system prompt; account access is required. No fallback to the Cursor default prompt was attempted');
+        }
+        throw new ProviderError(result.status === 'cancelled' ? 'ABORTED' : 'SDK_RUN_FAILED', 'Cursor run did not finish successfully');
+      }
       state.success = true;
     } catch (error) {
       if (!terminalReported) push({ type: 'diagnostic', summary: { status: controller.signal.aborted ? 'cancelled' : 'error', eventCounts: counts } });
