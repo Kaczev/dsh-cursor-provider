@@ -1,10 +1,10 @@
 # Cursor SDK 供应商
 
-`dsh-cursor-provider` 为 DeepSeek Harness（DSH）接入 Cursor 官方 SDK，注册 `cursor` 模型供应商。当前版本为 **0.2.1**，使用 `@cursor/sdk` 1.0.40，采用 [MIT 许可](LICENSE)。
+`dsh-cursor-provider` 为 DeepSeek Harness（DSH）接入 Cursor 官方 SDK，注册 `cursor` 模型供应商。当前版本为 **0.2.2**，使用 `@cursor/sdk` 1.0.40，采用 [MIT 许可](LICENSE)。
 
 ## 安装与配置
 
-需要 Node.js **24.9 或更新版本**，以及兼容 `@deepseek-ai/dsh-llm` **0.2.1-rc.3** 的 DSH 环境。
+需要 Node.js **24.9 或更新版本**。DSH 最低版本要求为 `>=0.2.1-rc.3`，不设上限。已在 rc.3 和 rc.5 的接口与回归测试中验证；允许新版本加载不代表新版本均已通过验收。
 
 1. 在 DSH 插件管理器中安装 npm 包 `dsh-cursor-provider`。
 2. 打开「插件 → Cursor → 详情」，填写并保存 Cursor API 密钥。
